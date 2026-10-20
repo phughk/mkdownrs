@@ -14,6 +14,11 @@
       --code-bg: #f6f8fa;
       --link: #0969da;
       --active: #dde7f3;
+      --note: #0969da;
+      --tip: #1a7f37;
+      --important: #8250df;
+      --warning: #9a6700;
+      --caution: #d1242f;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -25,6 +30,11 @@
         --code-bg: #151b23;
         --link: #4493f8;
         --active: #1f2a38;
+        --note: #4493f8;
+        --tip: #3fb950;
+        --important: #ab7df8;
+        --warning: #d29922;
+        --caution: #f85149;
       }
     }
     * { box-sizing: border-box; }
@@ -102,6 +112,21 @@
     main.content pre code { background: none; padding: 0; font-size: 85%; }
     main.content pre.mermaid { background: none; border: 0; padding: 0; text-align: center; overflow-x: auto; }
     main.content blockquote { margin: 0; padding: 0 1em; color: var(--muted); border-left: .25em solid var(--border); }
+    main.content blockquote[class^="markdown-alert-"] { color: var(--fg); border-left-color: var(--alert); margin-bottom: 16px; padding: .5em 1em; }
+    main.content blockquote[class^="markdown-alert-"] > :first-child { margin-top: 0; }
+    main.content blockquote[class^="markdown-alert-"] > :last-child { margin-bottom: 0; }
+    main.content blockquote[class^="markdown-alert-"]::before {
+      content: var(--alert-title);
+      display: block;
+      color: var(--alert);
+      font-weight: 600;
+      margin-bottom: .25em;
+    }
+    .markdown-alert-note { --alert: var(--note); --alert-title: "ⓘ Note"; }
+    .markdown-alert-tip { --alert: var(--tip); --alert-title: "✦ Tip"; }
+    .markdown-alert-important { --alert: var(--important); --alert-title: "❢ Important"; }
+    .markdown-alert-warning { --alert: var(--warning); --alert-title: "⚠ Warning"; }
+    .markdown-alert-caution { --alert: var(--caution); --alert-title: "⊘ Caution"; }
     main.content table { border-collapse: collapse; display: block; overflow-x: auto; }
     main.content th, main.content td { border: 1px solid var(--border); padding: 6px 13px; }
     main.content hr { border: 0; border-top: 1px solid var(--border); margin: 24px 0; }

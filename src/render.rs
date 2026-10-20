@@ -27,7 +27,8 @@ pub fn render(source: &str, base_dir: &Path, index: &Index) -> Rendered {
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS
-        | Options::ENABLE_HEADING_ATTRIBUTES;
+        | Options::ENABLE_HEADING_ATTRIBUTES
+        | Options::ENABLE_GFM;
     let mut events: Vec<Event> = Parser::new_ext(source, options).collect();
 
     let toc = assign_heading_ids(&mut events);
@@ -270,6 +271,22 @@ mod tests {
         assert_eq!(r.toc[3].text, "code bit");
         assert_eq!(r.toc[3].level, 3);
         assert!(r.html.contains(r#"<h2 id="part-1">"#));
+    }
+
+    #[test]
+    fn callouts() {
+        let r = render(
+            "> [!WARNING]\n> Careful.\n\n> plain quote\n",
+            &std::env::temp_dir(),
+            &Index::default(),
+        );
+        assert!(
+            r.html.contains(r#"<blockquote class="markdown-alert-warning">"#),
+            "{}",
+            r.html
+        );
+        assert!(!r.html.contains("[!WARNING]"));
+        assert!(r.html.contains("<blockquote>\n<p>plain quote</p>"));
     }
 
     #[test]
