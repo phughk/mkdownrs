@@ -12,7 +12,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::get;
 use minijinja::{Environment, context};
 
-use crate::index::{Index, is_markdown};
+use crate::index::{Index, is_markdown, scan_markdown};
 
 const PAGE_TEMPLATE: &str = include_str!("../templates/page.html");
 
@@ -25,19 +25,40 @@ struct AppState {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
-    let (Some(arg), None) = (args.next(), args.next()) else {
-        bail!("usage: mkdownrs <file.md>");
-    };
-    if arg == "-h" || arg == "--help" {
-        println!("usage: mkdownrs <file.md>");
+    let arg = args.next();
+    if args.next().is_some() {
+        bail!("usage: mkdownrs [file.md]");
+    }
+    if matches!(arg.as_deref(), Some("-h" | "--help")) {
+        println!("usage: mkdownrs [file.md]");
+        println!("  without arguments, indexes all markdown files under the current directory");
         return Ok(());
     }
 
-    let root = render::resolve_file(&PathBuf::from(&arg))
-        .with_context(|| format!("no such file: {arg}"))?;
-
     let index = Index::default();
-    let root_hash = index.insert(root.clone());
+    let root = match arg {
+        Some(arg) => {
+            let root = render::resolve_file(&PathBuf::from(&arg))
+                .with_context(|| format!("no such file: {arg}"))?;
+            index.insert(root.clone());
+            root
+        }
+        None => {
+            let cwd = std::env::current_dir()?.canonicalize()?;
+            let docs = scan_markdown(&cwd);
+            let root = docs
+                .iter()
+                .find(|p| p.parent() == Some(cwd.as_path()) && is_readme(p))
+                .or_else(|| docs.first())
+                .cloned()
+                .with_context(|| format!("no markdown files under {}", cwd.display()))?;
+            for doc in docs {
+                index.insert(doc);
+            }
+            root
+        }
+    };
+    let root_hash = Index::hash(&root);
 
     let mut templates = Environment::new();
     templates.add_template("page.html", PAGE_TEMPLATE)?;
@@ -61,6 +82,11 @@ async fn main() -> anyhow::Result<()> {
 
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+fn is_readme(path: &std::path::Path) -> bool {
+    path.file_stem()
+        .is_some_and(|s| s.eq_ignore_ascii_case("readme"))
 }
 
 async fn root_redirect(State(state): State<Arc<AppState>>) -> Redirect {

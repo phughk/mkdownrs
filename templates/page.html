@@ -111,6 +111,24 @@
     }
     main.content pre code { background: none; padding: 0; font-size: 85%; }
     main.content pre.mermaid { background: none; border: 0; padding: 0; text-align: center; overflow-x: auto; }
+    main.content pre.mermaid { cursor: zoom-in; }
+    main.content pre.mermaid svg { max-width: 100%; height: auto; }
+    .mermaid-overlay {
+      position: fixed; inset: 0; z-index: 100;
+      background: var(--bg);
+      overflow: hidden;
+      cursor: grab;
+      touch-action: none;
+    }
+    .mermaid-overlay.dragging { cursor: grabbing; }
+    .mermaid-overlay .stage { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+    .mermaid-overlay .stage svg { max-width: none !important; display: block; }
+    .mermaid-overlay .hint {
+      position: fixed; top: 12px; right: 16px;
+      color: var(--muted); font-size: 13px;
+      background: var(--sidebar-bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 4px 10px; pointer-events: none;
+    }
     main.content blockquote { margin: 0; padding: 0 1em; color: var(--muted); border-left: .25em solid var(--border); }
     main.content blockquote[class^="markdown-alert-"] { color: var(--fg); border-left-color: var(--alert); margin-bottom: 16px; padding: .5em 1em; }
     main.content blockquote[class^="markdown-alert-"] > :first-child { margin-top: 0; }
@@ -170,6 +188,79 @@
     const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "default" });
     await mermaid.run({ querySelector: "pre.mermaid" });
+
+    function expand(svg) {
+      const overlay = document.createElement("div");
+      overlay.className = "mermaid-overlay";
+      const stage = document.createElement("div");
+      stage.className = "stage";
+      const clone = svg.cloneNode(true);
+      const vb = svg.viewBox.baseVal;
+      const rect = svg.getBoundingClientRect();
+      const w = vb && vb.width ? vb.width : rect.width;
+      const h = vb && vb.height ? vb.height : rect.height;
+      clone.removeAttribute("style");
+      clone.setAttribute("width", w);
+      clone.setAttribute("height", h);
+      stage.appendChild(clone);
+      overlay.appendChild(stage);
+      const hint = document.createElement("div");
+      hint.className = "hint";
+      hint.textContent = "Drag to pan · scroll to zoom · Esc to close";
+      overlay.appendChild(hint);
+      document.body.appendChild(overlay);
+
+      let scale = Math.min(innerWidth / w, innerHeight / h, 1) * 0.9;
+      let x = (innerWidth - w * scale) / 2;
+      let y = (innerHeight - h * scale) / 2;
+      const apply = () => { stage.style.transform = `translate(${x}px, ${y}px) scale(${scale})`; };
+      apply();
+
+      const zoomAt = (cx, cy, factor) => {
+        const next = Math.min(Math.max(scale * factor, 0.05), 20);
+        x = cx - (cx - x) * (next / scale);
+        y = cy - (cy - y) * (next / scale);
+        scale = next;
+        apply();
+      };
+      overlay.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.002)));
+      }, { passive: false });
+
+      let drag = null;
+      overlay.addEventListener("pointerdown", (e) => {
+        drag = { px: e.clientX, py: e.clientY, x, y, moved: false };
+        overlay.setPointerCapture(e.pointerId);
+        overlay.classList.add("dragging");
+      });
+      overlay.addEventListener("pointermove", (e) => {
+        if (!drag) return;
+        x = drag.x + e.clientX - drag.px;
+        y = drag.y + e.clientY - drag.py;
+        if (Math.abs(e.clientX - drag.px) + Math.abs(e.clientY - drag.py) > 4) drag.moved = true;
+        apply();
+      });
+      overlay.addEventListener("pointerup", (e) => {
+        overlay.classList.remove("dragging");
+        // A click without dragging on the background closes the overlay.
+        if (drag && !drag.moved && !stage.contains(e.target)) close();
+        drag = null;
+      });
+      const onKey = (e) => { if (e.key === "Escape") close(); };
+      function close() {
+        overlay.remove();
+        document.removeEventListener("keydown", onKey);
+      }
+      document.addEventListener("keydown", onKey);
+    }
+
+    for (const pre of document.querySelectorAll("pre.mermaid")) {
+      pre.addEventListener("click", () => {
+        const svg = pre.querySelector("svg");
+        if (svg) expand(svg);
+      });
+    }
   </script>
   {% endif %}
 </body>

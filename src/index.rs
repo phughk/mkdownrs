@@ -55,6 +55,38 @@ impl Index {
     }
 }
 
+/// Recursively collect markdown files under `dir`, sorted, skipping hidden
+/// directories and common dependency/build directories.
+pub fn scan_markdown(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let Ok(kind) = std::fs::metadata(&path).map(|m| m.file_type()) else {
+                continue;
+            };
+            if kind.is_dir() {
+                if !name.starts_with('.') && !matches!(&*name, "node_modules" | "target") {
+                    stack.push(path);
+                }
+            } else if is_markdown(&path) {
+                if let Ok(canon) = path.canonicalize() {
+                    found.push(canon);
+                }
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
+}
+
 pub fn is_markdown(path: &Path) -> bool {
     matches!(
         path.extension()
