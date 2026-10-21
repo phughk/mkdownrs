@@ -20,9 +20,20 @@ pub struct Rendered {
     pub has_mermaid: bool,
 }
 
+/// How links to local files are rewritten.
+#[derive(Clone, Copy)]
+pub enum LinkMode<'a> {
+    /// `/{hash}` routes served by the HTTP server.
+    Server,
+    /// Everything lives in one file: markdown links become `#/{hash}` routes
+    /// and other files are inlined as `data:` URIs. Only files under the
+    /// given directory are bundled; links pointing elsewhere are left alone.
+    Export(&'a Path),
+}
+
 /// Render markdown to HTML, collecting a table of contents and rewriting
-/// links to local files into `/{hash}` routes (indexing them on the way).
-pub fn render(source: &str, base_dir: &Path, index: &Index) -> Rendered {
+/// links to local files (indexing them on the way).
+pub fn render(source: &str, base_dir: &Path, index: &Index, mode: LinkMode<'_>) -> Rendered {
     let options = Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
@@ -38,7 +49,7 @@ pub fn render(source: &str, base_dir: &Path, index: &Index) -> Rendered {
         match event {
             Event::Start(Tag::Link { dest_url, .. })
             | Event::Start(Tag::Image { dest_url, .. }) => {
-                if let Some(rewritten) = rewrite_link(dest_url, base_dir, index) {
+                if let Some(rewritten) = rewrite_link(dest_url, base_dir, index, mode) {
                     *dest_url = rewritten.into();
                 }
             }
@@ -171,8 +182,8 @@ fn slugify(text: &str) -> String {
 }
 
 /// Resolve a link destination against `base_dir`. If it points to an existing
-/// local file, index it and return the `/{hash}` URL (keeping any `#fragment`).
-fn rewrite_link(dest: &str, base_dir: &Path, index: &Index) -> Option<String> {
+/// local file, index it and return its replacement URL (keeping any `#fragment`).
+fn rewrite_link(dest: &str, base_dir: &Path, index: &Index, mode: LinkMode<'_>) -> Option<String> {
     if dest.is_empty() || dest.starts_with('#') || dest.starts_with("//") || has_scheme(dest) {
         return None;
     }
@@ -194,8 +205,40 @@ fn rewrite_link(dest: &str, base_dir: &Path, index: &Index) -> Option<String> {
         base_dir.join(&decoded)
     };
     let resolved = resolve_file(&candidate)?;
+    if let LinkMode::Export(scope) = mode
+        && !resolved.starts_with(scope)
+    {
+        return None;
+    }
+    if matches!(mode, LinkMode::Export(_)) && !is_markdown(&resolved) {
+        let bytes = std::fs::read(&resolved).ok()?;
+        let mime = mime_guess::from_path(&resolved).first_or_octet_stream();
+        return Some(format!("data:{mime};base64,{}", base64(&bytes)));
+    }
     let hash = index.insert(resolved);
-    Some(format!("/{hash}{fragment}"))
+    Some(match mode {
+        LinkMode::Server => format!("/{hash}{fragment}"),
+        LinkMode::Export(_) => format!("#/{hash}{}", fragment.replace('#', "/")),
+    })
+}
+
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |acc, (i, b)| acc | (*b as u32) << (16 - 8 * i));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
 }
 
 /// Canonicalize a path to an existing file. Directories resolve to a
@@ -265,6 +308,7 @@ mod tests {
             "# Title\n## Part\n## Part\n### `code` bit {#custom}\n",
             &dir,
             &Index::default(),
+            LinkMode::Server,
         );
         let ids: Vec<_> = r.toc.iter().map(|t| t.id.as_str()).collect();
         assert_eq!(ids, ["title", "part", "part-1", "custom"]);
@@ -279,9 +323,11 @@ mod tests {
             "> [!WARNING]\n> Careful.\n\n> plain quote\n",
             &std::env::temp_dir(),
             &Index::default(),
+            LinkMode::Server,
         );
         assert!(
-            r.html.contains(r#"<blockquote class="markdown-alert-warning">"#),
+            r.html
+                .contains(r#"<blockquote class="markdown-alert-warning">"#),
             "{}",
             r.html
         );
@@ -296,6 +342,7 @@ mod tests {
             "```mermaid\ngraph TD\n  A-->B & C<br/>\n```\n\n```rust\nfn main() {}\n```\n",
             &dir,
             &Index::default(),
+            LinkMode::Server,
         );
         assert!(r.has_mermaid);
         assert!(
@@ -306,7 +353,12 @@ mod tests {
         );
         assert!(r.html.contains(r#"<code class="language-rust">"#));
 
-        let r = render("```\nplain\n```\n", &dir, &Index::default());
+        let r = render(
+            "```\nplain\n```\n",
+            &dir,
+            &Index::default(),
+            LinkMode::Server,
+        );
         assert!(!r.has_mermaid);
     }
 
@@ -322,7 +374,7 @@ mod tests {
             "[rel](docs/other%20file.md#x) [abs](<{}>) [web](https://example.com) [anchor](#top) [missing](nope.md)",
             other.display()
         );
-        let r = render(&md, &dir, &index);
+        let r = render(&md, &dir, &index, LinkMode::Server);
         let hash = Index::hash(&other);
 
         assert!(
@@ -337,5 +389,58 @@ mod tests {
         assert_eq!(index.get(&hash), Some(other));
 
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn export_links_are_routes_and_data_uris() {
+        let dir = std::env::temp_dir().join(format!("mkdownrs-export-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("other.md"), "# Other").unwrap();
+        fs::write(dir.join("a.txt"), "hello").unwrap();
+        let other = dir.join("other.md").canonicalize().unwrap();
+
+        let r = render(
+            "[o](other.md#x) ![a](a.txt)",
+            &dir,
+            &Index::default(),
+            LinkMode::Export(&dir.canonicalize().unwrap()),
+        );
+        let hash = Index::hash(&other);
+        assert!(
+            r.html.contains(&format!(r##"href="#/{hash}/x""##)),
+            "{}",
+            r.html
+        );
+        assert!(
+            r.html.contains(r#"src="data:text/plain;base64,aGVsbG8=""#),
+            "{}",
+            r.html
+        );
+    }
+
+    #[test]
+    fn export_ignores_links_outside_scope() {
+        let dir = std::env::temp_dir().join(format!("mkdownrs-scope-{}", std::process::id()));
+        fs::create_dir_all(dir.join("inner")).unwrap();
+        fs::write(dir.join("outer.md"), "# Outer").unwrap();
+        let inner = dir.join("inner").canonicalize().unwrap();
+
+        let index = Index::default();
+        let r = render(
+            "[up](../outer.md)",
+            &inner,
+            &index,
+            LinkMode::Export(&inner),
+        );
+        assert!(r.html.contains(r#"href="../outer.md""#), "{}", r.html);
+        assert!(index.documents().is_empty());
+    }
+
+    #[test]
+    fn base64_padding() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
     }
 }

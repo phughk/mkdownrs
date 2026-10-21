@@ -1,3 +1,4 @@
+mod export;
 mod index;
 mod render;
 
@@ -15,6 +16,10 @@ use minijinja::{Environment, context};
 use crate::index::{Index, is_markdown, scan_markdown};
 
 const PAGE_TEMPLATE: &str = include_str!("../templates/page.html");
+const EXPORT_TEMPLATE: &str = include_str!("../templates/export.html");
+const STYLE: &str = include_str!("../templates/style.css");
+const MERMAID_JS: &str = include_str!("../templates/mermaid.js");
+const USAGE: &str = "usage: mkdownrs [file.md] [--export out.html]";
 
 struct AppState {
     index: Index,
@@ -24,27 +29,46 @@ struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let mut file = None;
+    let mut export_to = None;
     let mut args = std::env::args().skip(1);
-    let arg = args.next();
-    if args.next().is_some() {
-        bail!("usage: mkdownrs [file.md]");
-    }
-    if matches!(arg.as_deref(), Some("-h" | "--help")) {
-        println!("usage: mkdownrs [file.md]");
-        println!("  without arguments, indexes all markdown files under the current directory");
-        return Ok(());
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-h" | "--help" => {
+                println!("{USAGE}");
+                println!(
+                    "  without a file, indexes all markdown files under the current directory"
+                );
+                println!(
+                    "  --export out.html  write everything as one standalone HTML file instead of serving"
+                );
+                return Ok(());
+            }
+            "--export" => {
+                export_to = Some(
+                    args.next()
+                        .with_context(|| format!("--export needs a path\n{USAGE}"))?,
+                );
+            }
+            _ if file.is_none() && !arg.starts_with('-') => file = Some(arg),
+            _ => bail!("{USAGE}"),
+        }
     }
 
     let index = Index::default();
-    let root = match arg {
+    let mut scope = std::env::current_dir()?.canonicalize()?;
+    let root = match file {
         Some(arg) => {
             let root = render::resolve_file(&PathBuf::from(&arg))
                 .with_context(|| format!("no such file: {arg}"))?;
             index.insert(root.clone());
+            if let Some(dir) = root.parent() {
+                scope = dir.to_path_buf();
+            }
             root
         }
         None => {
-            let cwd = std::env::current_dir()?.canonicalize()?;
+            let cwd = scope.clone();
             let docs = scan_markdown(&cwd);
             let root = docs
                 .iter()
@@ -62,6 +86,16 @@ async fn main() -> anyhow::Result<()> {
 
     let mut templates = Environment::new();
     templates.add_template("page.html", PAGE_TEMPLATE)?;
+    templates.add_template("export.html", EXPORT_TEMPLATE)?;
+    templates.add_template("style.css", STYLE)?;
+    templates.add_template("mermaid.js", MERMAID_JS)?;
+
+    if let Some(out) = export_to {
+        let html = export::export(&index, &root, &scope, &root_hash, &templates)?;
+        std::fs::write(&out, html).with_context(|| format!("writing {out}"))?;
+        println!("Exported {} documents to {out}", index.documents().len());
+        return Ok(());
+    }
 
     let state = Arc::new(AppState {
         index,
@@ -116,7 +150,7 @@ async fn serve(State(state): State<Arc<AppState>>, Path(hash): Path<String>) -> 
     };
 
     let base_dir = path.parent().unwrap_or(std::path::Path::new("/"));
-    let rendered = render::render(&source, base_dir, &state.index);
+    let rendered = render::render(&source, base_dir, &state.index, render::LinkMode::Server);
 
     let file_name = path
         .file_name()

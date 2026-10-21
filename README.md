@@ -19,3 +19,12 @@ The hashing is used as a lookup as well, if it's been indexed, the full path is 
 
 Renders should be done with minijinja.
 There should be a table of contents on the left side of each page, and rendered content in the primary div.
+
+## Standalone export
+
+```
+mkdownrs --export out.html            # every markdown file under the current directory
+mkdownrs README.md --export out.html  # README.md plus everything reachable by links below its directory
+```
+
+Writes a single self-contained HTML file instead of serving: all documents are rendered into it, links between them become `#/{hash}` routes, linked images/files are inlined as `data:` URIs, and mermaid is bundled (`assets/mermaid.min.js`, mermaid 11), so it works offline. Only files under the current directory (or under the given file's directory) are bundled; links pointing outside it are left as they were.

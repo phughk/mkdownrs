@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <style>
+{% include "style.css" %}
+    [hidden] { display: none !important; }
+    main.content > section > :first-child { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <nav class="toc">
+    {% for doc in documents %}
+    <div class="file" data-doc="{{ doc.hash }}" title="{{ doc.path }}" hidden>{{ doc.path }}</div>
+    {% endfor %}
+
+    {% for doc in documents %}
+    <div data-doc="{{ doc.hash }}" hidden>
+      <h2>Contents</h2>
+      <ul>
+        {% for entry in doc.toc %}
+        <li><a href="#/{{ doc.hash }}/{{ entry.id }}" style="--level: {{ entry.level }}">{{ entry.text }}</a></li>
+        {% else %}
+        <li><a href="#/{{ doc.hash }}">{{ doc.name }}</a></li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+
+    {% if documents | length > 1 %}
+    <h2>Documents</h2>
+    <ul>
+      {% for doc in documents %}
+      <li><a href="#/{{ doc.hash }}" data-nav="{{ doc.hash }}" title="{{ doc.path }}">{{ doc.name }}{% if doc.hash == root_hash %} ★{% endif %}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </nav>
+
+  <main class="content">
+    {% for doc in documents %}
+    <section data-doc="{{ doc.hash }}" hidden>
+      {{ doc.content | safe }}
+    </section>
+    {% endfor %}
+  </main>
+  {% if has_mermaid %}
+  <script>{{ mermaid_lib | safe }}</script>
+  <script type="module">
+{% include "mermaid.js" %}
+  </script>
+  {% endif %}
+  <script type="module">
+    // Routes are `#/{hash}` or `#/{hash}/{heading-id}`; heading ids are only
+    // unique within a document, so lookups are scoped to the active section.
+    const root = "{{ root_hash }}";
+    const docs = new Set([{% for doc in documents %}"{{ doc.hash }}",{% endfor %}]);
+    const byDoc = (sel, hash) => document.querySelectorAll(`${sel}[data-doc="${hash}"]`);
+
+    // Plain `#id` links (in-page anchors, footnotes) stay within the current document.
+    document.addEventListener("click", (e) => {
+      const a = e.target.closest('main a[href^="#"]');
+      const href = a && a.getAttribute("href");
+      if (!href || href.startsWith("#/")) return;
+      e.preventDefault();
+      location.hash = `#/${current}/${href.slice(1)}`;
+    });
+
+    let current = null;
+    async function route() {
+      const [, hash, ...rest] = decodeURIComponent(location.hash).split("/");
+      const id = rest.join("/");
+      const doc = docs.has(hash) ? hash : root;
+      if (doc !== current) {
+        for (const el of document.querySelectorAll("[data-doc]")) el.hidden = el.dataset.doc !== doc;
+        for (const a of document.querySelectorAll("a[data-nav]")) a.classList.toggle("current", a.dataset.nav === doc);
+        document.title = byDoc("section", doc)[0].querySelector("h1")?.textContent || document.title;
+        current = doc;
+        window.scrollTo(0, 0);
+        if (window.renderMermaid) await renderMermaid(byDoc("section", doc)[0]);
+      }
+      if (id) {
+        const target = [...byDoc("section", doc)[0].querySelectorAll("[id]")].find((el) => el.id === id);
+        target?.scrollIntoView();
+      }
+    }
+    addEventListener("hashchange", route);
+    route();
+  </script>
+</body>
+</html>
