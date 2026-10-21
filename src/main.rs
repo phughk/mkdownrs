@@ -1,6 +1,7 @@
 mod index;
 mod render;
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -38,6 +39,8 @@ async fn main() -> anyhow::Result<()> {
 
     let index = Index::default();
     let root_hash = index.insert(root.clone());
+    // Index everything reachable up front so every page's URL works immediately.
+    collect_links(&index);
 
     let mut templates = Environment::new();
     templates.add_template("page.html", PAGE_TEMPLATE)?;
@@ -67,6 +70,31 @@ async fn root_redirect(State(state): State<Arc<AppState>>) -> Redirect {
     Redirect::temporary(&format!("/{}", state.root_hash))
 }
 
+/// Read every markdown document reachable from the index (indexing new ones
+/// as they're found) and return all their links. Re-read on each request so
+/// backlinks reflect the files as they are now.
+fn collect_links(index: &Index) -> Vec<render::Link> {
+    let mut queue: Vec<_> = index.documents().into_iter().map(|(h, _)| h).collect();
+    let mut seen: HashSet<String> = queue.iter().cloned().collect();
+    let mut links = Vec::new();
+
+    while let Some(hash) = queue.pop() {
+        let Some(path) = index.get(&hash) else {
+            continue;
+        };
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for link in render::links(&source, &path, index) {
+            if seen.insert(link.target.clone()) {
+                queue.push(link.target.clone());
+            }
+            links.push(link);
+        }
+    }
+    links
+}
+
 async fn serve(State(state): State<Arc<AppState>>, Path(hash): Path<String>) -> Response {
     let Some(path) = state.index.get(&hash) else {
         return (StatusCode::NOT_FOUND, "not indexed").into_response();
@@ -89,8 +117,25 @@ async fn serve(State(state): State<Arc<AppState>>, Path(hash): Path<String>) -> 
         }
     };
 
-    let base_dir = path.parent().unwrap_or(std::path::Path::new("/"));
-    let rendered = render::render(&source, base_dir, &state.index);
+    let rendered = {
+        let state = state.clone();
+        let path = path.clone();
+        tokio::task::spawn_blocking(move || {
+            let backlinks = collect_links(&state.index);
+            render::render(&source, &path, &state.index, &backlinks)
+        })
+        .await
+    };
+    let rendered = match rendered {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("render failed: {e}"),
+            )
+                .into_response();
+        }
+    };
 
     let file_name = path
         .file_name()

@@ -122,6 +122,24 @@
       font-weight: 600;
       margin-bottom: .25em;
     }
+    main.content aside.backlinks {
+      margin: 16px 0;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--sidebar-bg);
+      font-size: 14px;
+    }
+    main.content aside.backlinks .backlinks-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    main.content aside.backlinks ul { list-style: none; margin: 0; padding: 0; }
+    main.content aside.backlinks li + li { margin-top: 6px; }
+    main.content aside.backlinks .snippet { color: var(--muted); }
     .markdown-alert-note { --alert: var(--note); --alert-title: "ⓘ Note"; }
     .markdown-alert-tip { --alert: var(--tip); --alert-title: "✦ Tip"; }
     .markdown-alert-important { --alert: var(--important); --alert-title: "❢ Important"; }
