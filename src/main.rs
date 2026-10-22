@@ -1,7 +1,7 @@
+mod export;
 mod index;
 mod render;
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -13,9 +13,14 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::get;
 use minijinja::{Environment, context};
 
-use crate::index::{Index, is_markdown};
+use crate::index::{Index, is_markdown, scan_markdown};
+use crate::render::LinkMode;
 
 const PAGE_TEMPLATE: &str = include_str!("../templates/page.html");
+const EXPORT_TEMPLATE: &str = include_str!("../templates/export.html");
+const STYLE: &str = include_str!("../templates/style.css");
+const MERMAID_JS: &str = include_str!("../templates/mermaid.js");
+const USAGE: &str = "usage: mkdownrs [file.md] [--export out.html]";
 
 struct AppState {
     index: Index,
@@ -25,25 +30,76 @@ struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let mut file = None;
+    let mut export_to = None;
     let mut args = std::env::args().skip(1);
-    let (Some(arg), None) = (args.next(), args.next()) else {
-        bail!("usage: mkdownrs <file.md>");
-    };
-    if arg == "-h" || arg == "--help" {
-        println!("usage: mkdownrs <file.md>");
-        return Ok(());
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-h" | "--help" => {
+                println!("{USAGE}");
+                println!(
+                    "  without a file, indexes all markdown files under the current directory"
+                );
+                println!(
+                    "  --export out.html  write everything as one standalone HTML file instead of serving"
+                );
+                return Ok(());
+            }
+            "--export" => {
+                export_to = Some(
+                    args.next()
+                        .with_context(|| format!("--export needs a path\n{USAGE}"))?,
+                );
+            }
+            _ if file.is_none() && !arg.starts_with('-') => file = Some(arg),
+            _ => bail!("{USAGE}"),
+        }
     }
 
-    let root = render::resolve_file(&PathBuf::from(&arg))
-        .with_context(|| format!("no such file: {arg}"))?;
-
     let index = Index::default();
-    let root_hash = index.insert(root.clone());
-    // Index everything reachable up front so every page's URL works immediately.
-    collect_links(&index);
+    let mut scope = std::env::current_dir()?.canonicalize()?;
+    let root = match file {
+        Some(arg) => {
+            let root = render::resolve_file(&PathBuf::from(&arg))
+                .with_context(|| format!("no such file: {arg}"))?;
+            index.insert(root.clone());
+            if let Some(dir) = root.parent() {
+                scope = dir.to_path_buf();
+            }
+            root
+        }
+        None => {
+            let cwd = scope.clone();
+            let docs = scan_markdown(&cwd);
+            let root = docs
+                .iter()
+                .find(|p| p.parent() == Some(cwd.as_path()) && is_readme(p))
+                .or_else(|| docs.first())
+                .cloned()
+                .with_context(|| format!("no markdown files under {}", cwd.display()))?;
+            for doc in docs {
+                index.insert(doc);
+            }
+            root
+        }
+    };
+    let root_hash = Index::hash(&root);
 
     let mut templates = Environment::new();
     templates.add_template("page.html", PAGE_TEMPLATE)?;
+    templates.add_template("export.html", EXPORT_TEMPLATE)?;
+    templates.add_template("style.css", STYLE)?;
+    templates.add_template("mermaid.js", MERMAID_JS)?;
+
+    if let Some(out) = export_to {
+        let html = export::export(&index, &root, &scope, &root_hash, &templates)?;
+        std::fs::write(&out, html).with_context(|| format!("writing {out}"))?;
+        println!("Exported {} documents to {out}", index.documents().len());
+        return Ok(());
+    }
+
+    // Index everything reachable up front so every page's URL works immediately.
+    render::collect_links(&index, LinkMode::Server);
 
     let state = Arc::new(AppState {
         index,
@@ -66,33 +122,13 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn root_redirect(State(state): State<Arc<AppState>>) -> Redirect {
-    Redirect::temporary(&format!("/{}", state.root_hash))
+fn is_readme(path: &std::path::Path) -> bool {
+    path.file_stem()
+        .is_some_and(|s| s.eq_ignore_ascii_case("readme"))
 }
 
-/// Read every markdown document reachable from the index (indexing new ones
-/// as they're found) and return all their links. Re-read on each request so
-/// backlinks reflect the files as they are now.
-fn collect_links(index: &Index) -> Vec<render::Link> {
-    let mut queue: Vec<_> = index.documents().into_iter().map(|(h, _)| h).collect();
-    let mut seen: HashSet<String> = queue.iter().cloned().collect();
-    let mut links = Vec::new();
-
-    while let Some(hash) = queue.pop() {
-        let Some(path) = index.get(&hash) else {
-            continue;
-        };
-        let Ok(source) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        for link in render::links(&source, &path, index) {
-            if seen.insert(link.target.clone()) {
-                queue.push(link.target.clone());
-            }
-            links.push(link);
-        }
-    }
-    links
+async fn root_redirect(State(state): State<Arc<AppState>>) -> Redirect {
+    Redirect::temporary(&format!("/{}", state.root_hash))
 }
 
 async fn serve(State(state): State<Arc<AppState>>, Path(hash): Path<String>) -> Response {
@@ -121,8 +157,9 @@ async fn serve(State(state): State<Arc<AppState>>, Path(hash): Path<String>) -> 
         let state = state.clone();
         let path = path.clone();
         tokio::task::spawn_blocking(move || {
-            let backlinks = collect_links(&state.index);
-            render::render(&source, &path, &state.index, &backlinks)
+            // Re-read on each request so backlinks reflect the files as they are now.
+            let backlinks = render::collect_links(&state.index, LinkMode::Server);
+            render::render(&source, &path, &state.index, LinkMode::Server, &backlinks)
         })
         .await
     };
