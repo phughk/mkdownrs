@@ -27,7 +27,7 @@ pub struct Link {
     pub source: String,
     /// Heading `(id, text)` the link appears under, if any.
     pub section: Option<(String, String)>,
-    /// Plain text of the block (paragraph, list item, ...) containing the link.
+    /// The sentence containing the link, as plain text.
     pub snippet: String,
     /// Hash of the linked document.
     pub target: String,
@@ -81,8 +81,9 @@ fn analyze<'a>(
     let mut section: Option<(String, String)> = None;
     let mut headings = toc.iter();
     let mut in_code = false;
-    // Open text blocks: their text so far, and the links waiting on it.
-    let mut blocks: Vec<(String, Vec<Link>)> = Vec::new();
+    // Open text blocks: their text so far, and the links waiting on it
+    // (with the text offset each link starts at).
+    let mut blocks: Vec<(String, Vec<(Link, usize)>)> = Vec::new();
 
     for event in &mut events {
         match event {
@@ -97,9 +98,8 @@ fn analyze<'a>(
                 TagEnd::Heading(_) | TagEnd::Paragraph | TagEnd::Item | TagEnd::TableCell,
             ) => {
                 if let Some((text, pending)) = blocks.pop() {
-                    let snippet = snippet(&text);
-                    links.extend(pending.into_iter().map(|l| Link {
-                        snippet: snippet.clone(),
+                    links.extend(pending.into_iter().map(|(l, offset)| Link {
+                        snippet: sentence_at(&text, offset),
                         ..l
                     }));
                 }
@@ -137,15 +137,17 @@ fn analyze<'a>(
                 } else {
                     None
                 };
-                if let (Some((target, fragment)), Some((_, pending))) = (target, blocks.last_mut())
+                if let (Some((target, fragment)), Some((text, pending))) =
+                    (target, blocks.last_mut())
                 {
-                    pending.push(Link {
+                    let link = Link {
                         source: self_hash.clone(),
                         section: section.clone(),
                         snippet: String::new(),
                         target,
                         fragment: (!fragment.is_empty()).then(|| percent_decode(&fragment)),
-                    });
+                    };
+                    pending.push((link, text.len()));
                 }
             }
             _ => {}
@@ -155,16 +157,37 @@ fn analyze<'a>(
     (events, toc, links)
 }
 
-fn snippet(text: &str) -> String {
-    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    match text.char_indices().nth(SNIPPET_LEN) {
-        Some((cut, _)) => format!("{}…", text[..cut].trim_end()),
-        None => text,
+/// The sentence of `text` around byte `offset`, whitespace-collapsed.
+fn sentence_at(text: &str, offset: usize) -> String {
+    let is_end = |i: usize, c: char| {
+        matches!(c, '.' | '!' | '?')
+            && text[i + c.len_utf8()..]
+                .chars()
+                .next()
+                .is_none_or(char::is_whitespace)
+    };
+    let start = text[..offset]
+        .char_indices()
+        .filter(|&(i, c)| is_end(i, c))
+        .last()
+        .map_or(0, |(i, c)| i + c.len_utf8());
+    let end = text[offset..]
+        .char_indices()
+        .find(|&(i, c)| is_end(offset + i, c))
+        .map_or(text.len(), |(i, c)| offset + i + c.len_utf8());
+
+    let sentence = text[start..end]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    match sentence.char_indices().nth(SNIPPET_LEN) {
+        Some((cut, _)) => format!("{}…", sentence[..cut].trim_end()),
+        None => sentence,
     }
 }
 
-/// Insert "Linked from" lists: at the end of each targeted section's own
-/// content (before the next heading), and for whole-document links at the end.
+/// Insert backlink pills at the end of each targeted section's own content
+/// (before the next heading), and for whole-document links at the end.
 fn insert_backlinks(events: &mut Vec<Event>, self_hash: &str, backlinks: &[Link], index: &Index) {
     let headings: Vec<(usize, String)> = events
         .iter()
@@ -175,81 +198,70 @@ fn insert_backlinks(events: &mut Vec<Event>, self_hash: &str, backlinks: &[Link]
         })
         .collect();
 
-    // Insertion position -> title and links to list there.
-    let mut at: Vec<(usize, &str, Vec<&Link>)> = Vec::new();
-    let mut page: Vec<&Link> = Vec::new();
+    // Insertion position -> links to show there.
+    let mut at: Vec<(usize, Vec<&Link>)> = Vec::new();
     for link in backlinks.iter().filter(|l| l.target == self_hash) {
         let heading = link
             .fragment
             .as_ref()
             .and_then(|f| headings.iter().position(|(_, id)| id == f));
-        match heading {
-            Some(k) => {
-                let pos = headings.get(k + 1).map_or(events.len(), |(i, _)| *i);
-                match at.iter_mut().find(|(p, _, _)| *p == pos) {
-                    Some((_, _, list)) => list.push(link),
-                    None => at.push((pos, "Linked from", vec![link])),
-                }
-            }
+        let pos = match heading {
+            Some(k) => headings.get(k + 1).map_or(events.len(), |(i, _)| *i),
             // Links into this page that point nowhere in particular aren't backlinks.
-            None if link.source == self_hash => {}
-            None => page.push(link),
+            None if link.source == self_hash => continue,
+            None => events.len(),
+        };
+        match at.iter_mut().find(|(p, _)| *p == pos) {
+            Some((_, list)) => list.push(link),
+            None => at.push((pos, vec![link])),
         }
     }
-    if !page.is_empty() {
-        at.push((events.len(), "Pages linking here", page));
-    }
 
-    // Insert from the back so earlier positions stay valid; the stable sort
-    // keeps the page-level list after a last section's list.
-    at.sort_by_key(|(pos, _, _)| *pos);
-    for (pos, title, list) in at.into_iter().rev() {
-        let html = backlinks_html(title, &list, self_hash, index);
+    // Insert from the back so earlier positions stay valid.
+    at.sort_by_key(|(pos, _)| *pos);
+    for (pos, list) in at.into_iter().rev() {
+        let html = backlinks_html(&list, self_hash, index);
         events.insert(pos, Event::Html(html.into()));
     }
 }
 
-fn backlinks_html(title: &str, links: &[&Link], self_hash: &str, index: &Index) -> String {
-    let mut html = format!(
-        "<aside class=\"backlinks\">\n<div class=\"backlinks-title\">{title}</div>\n<ul>\n"
-    );
+/// A row of `[file | heading | sentence]` pills, each one link back to
+/// where the link was made.
+fn backlinks_html(links: &[&Link], self_hash: &str, index: &Index) -> String {
+    let segment = |html: &mut String, class: &str, text: &str| {
+        html.push_str(&format!("<span class=\"{class}\">"));
+        escape_html(html, text);
+        html.push_str("</span>");
+    };
+    let mut html = String::from("<div class=\"backlinks\">\n");
     for link in links {
-        let mut label = String::new();
-        if link.source != self_hash {
-            let name = index
-                .get(&link.source)
-                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-                .unwrap_or_else(|| link.source.clone());
-            label.push_str(&name);
-        }
-        if let Some((_, text)) = &link.section {
-            if !label.is_empty() {
-                label.push_str(" › ");
-            }
-            label.push_str(text);
-        }
-        if label.is_empty() {
-            label.push_str("This page");
-        }
+        let name = index
+            .get(&link.source)
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| link.source.clone());
         let href = match (&link.section, link.source == self_hash) {
             (Some((id, _)), true) => format!("#{id}"),
             (Some((id, _)), false) => format!("/{}#{id}", link.source),
             (None, _) => format!("/{}", link.source),
         };
 
-        html.push_str("<li><a href=\"");
+        html.push_str("<a class=\"backlink\" href=\"");
         escape_html(&mut html, &href);
-        html.push_str("\">");
-        escape_html(&mut html, &label);
-        html.push_str("</a>");
         if !link.snippet.is_empty() {
-            html.push_str("<div class=\"snippet\">");
+            html.push_str("\" title=\"");
             escape_html(&mut html, &link.snippet);
-            html.push_str("</div>");
         }
-        html.push_str("</li>\n");
+        html.push_str("\">");
+        segment(&mut html, "file", &name);
+        if let Some((_, text)) = &link.section {
+            segment(&mut html, "section", text);
+        }
+        if !link.snippet.is_empty() {
+            segment(&mut html, "excerpt", &link.snippet);
+        }
+        html.push_str("</a>\n");
     }
-    html.push_str("</ul>\n</aside>\n");
+    html.push_str("</div>\n");
     html
 }
 
@@ -552,10 +564,21 @@ mod tests {
     }
 
     #[test]
+    fn sentence_excerpts() {
+        let text = "First thing. Then see x here! Last one.";
+        assert_eq!(
+            sentence_at(text, text.find('x').unwrap()),
+            "Then see x here!"
+        );
+        assert_eq!(sentence_at(text, 0), "First thing.");
+        assert_eq!(sentence_at("v1.2 is out", 5), "v1.2 is out");
+    }
+
+    #[test]
     fn backlinks_land_in_the_targeted_section() {
         let dir = std::env::temp_dir().join(format!("mkdownrs-bl-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
-        let a_src = "# A\n## Intro\nSee [setup](b.md#setup) & 1 < 2.\n\n- [whole](b.md)\n";
+        let a_src = "# A\n## Intro\nUnrelated. See [setup](b.md#setup) & 1 < 2. After.\n\n- [whole](b.md)\n";
         let b_src = "# B\n## Setup\nSteps. Back to [usage](#usage).\n## Usage\nUse it.\n";
         fs::write(dir.join("a.md"), a_src).unwrap();
         fs::write(dir.join("b.md"), b_src).unwrap();
@@ -583,23 +606,24 @@ mod tests {
         let html = render(b_src, &b, &index, &all).html;
         let setup = html.find(r#"<h2 id="setup">"#).unwrap();
         let usage = html.find(r#"<h2 id="usage">"#).unwrap();
-        let from_a = html
-            .find(&format!(r#"<a href="/{a_hash}#intro">a.md › Intro</a>"#))
-            .expect(&html);
+        let pill = format!(
+            concat!(
+                r#"<a class="backlink" href="/{a}#intro" title="See setup &amp; 1 &lt; 2.">"#,
+                r#"<span class="file">a.md</span><span class="section">Intro</span>"#,
+                r#"<span class="excerpt">See setup &amp; 1 &lt; 2.</span></a>"#,
+            ),
+            a = a_hash
+        );
+        let from_a = html.find(&pill).expect(&html);
         assert!(setup < from_a && from_a < usage, "{html}");
-        assert!(html.contains("See setup &amp; 1 &lt; 2."));
 
         // Same-page link shows up under Usage, pointing back to Setup.
-        let from_self = html.find(r##"<a href="#setup">Setup</a>"##).unwrap();
+        let from_self = html.find(r##"<a class="backlink" href="#setup""##).unwrap();
         assert!(from_self > usage);
 
         // Whole-document link goes at the end of the page.
-        let whole = html
-            .rfind(&format!(r#"<a href="/{a_hash}#intro">"#))
-            .unwrap();
-        assert!(whole > from_self && html[whole..].contains("whole"));
-        let page_title = html.find("Pages linking here").unwrap();
-        assert!(from_self < page_title && page_title < whole);
+        let whole = html.rfind(r#"<span class="excerpt">whole</span>"#).unwrap();
+        assert!(whole > usage);
 
         fs::remove_dir_all(&dir).unwrap();
     }

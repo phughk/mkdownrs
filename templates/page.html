@@ -122,24 +122,24 @@
       font-weight: 600;
       margin-bottom: .25em;
     }
-    main.content aside.backlinks {
-      margin: 16px 0;
-      padding: 8px 12px;
+    main.content .backlinks { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 16px; }
+    main.content a.backlink {
+      display: inline-flex;
+      max-width: 100%;
       border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: 999px;
       background: var(--sidebar-bg);
-      font-size: 14px;
-    }
-    main.content aside.backlinks .backlinks-title {
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: .06em;
       color: var(--muted);
-      margin-bottom: 4px;
+      font-size: 12px;
+      line-height: 1.8;
+      overflow: hidden;
     }
-    main.content aside.backlinks ul { list-style: none; margin: 0; padding: 0; }
-    main.content aside.backlinks li + li { margin-top: 6px; }
-    main.content aside.backlinks .snippet { color: var(--muted); }
+    main.content a.backlink:hover { background: var(--active); border-color: var(--link); text-decoration: none; }
+    main.content a.backlink span { padding: 0 10px; white-space: nowrap; }
+    main.content a.backlink span + span { border-left: 1px solid var(--border); }
+    main.content a.backlink .file { color: var(--link); font-weight: 600; }
+    main.content a.backlink .section { color: var(--fg); }
+    main.content a.backlink .excerpt { min-width: 0; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; font-style: italic; }
     .markdown-alert-note { --alert: var(--note); --alert-title: "ⓘ Note"; }
     .markdown-alert-tip { --alert: var(--tip); --alert-title: "✦ Tip"; }
     .markdown-alert-important { --alert: var(--important); --alert-title: "❢ Important"; }
