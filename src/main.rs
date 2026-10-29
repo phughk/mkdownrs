@@ -20,7 +20,7 @@ const PAGE_TEMPLATE: &str = include_str!("../templates/page.html");
 const EXPORT_TEMPLATE: &str = include_str!("../templates/export.html");
 const STYLE: &str = include_str!("../templates/style.css");
 const MERMAID_JS: &str = include_str!("../templates/mermaid.js");
-const USAGE: &str = "usage: mkdownrs [file.md] [--export out.html]";
+const USAGE: &str = "usage: mkdownrs [file.md|dir] [-s|--strict] [--export out.html]";
 
 struct AppState {
     index: Index,
@@ -32,13 +32,17 @@ struct AppState {
 async fn main() -> anyhow::Result<()> {
     let mut file = None;
     let mut export_to = None;
+    let mut strict = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => {
                 println!("{USAGE}");
                 println!(
-                    "  without a file, indexes all markdown files under the current directory"
+                    "  without a file, or given a directory, indexes all markdown files under it"
+                );
+                println!(
+                    "  -s, --strict       for a directory, only index the most sensible markdown file and what it links to"
                 );
                 println!(
                     "  --export out.html  write everything as one standalone HTML file instead of serving"
@@ -51,6 +55,7 @@ async fn main() -> anyhow::Result<()> {
                         .with_context(|| format!("--export needs a path\n{USAGE}"))?,
                 );
             }
+            "-s" | "--strict" => strict = true,
             _ if file.is_none() && !arg.starts_with('-') => file = Some(arg),
             _ => bail!("{USAGE}"),
         }
@@ -58,10 +63,11 @@ async fn main() -> anyhow::Result<()> {
 
     let index = Index::default();
     let mut scope = std::env::current_dir()?.canonicalize()?;
-    let root = match file {
-        Some(arg) => {
-            let root = render::resolve_file(&PathBuf::from(&arg))
-                .with_context(|| format!("no such file: {arg}"))?;
+    let target = file.as_deref().map(PathBuf::from);
+    let root = match target.filter(|t| !t.is_dir()) {
+        Some(path) => {
+            let root = render::resolve_file(&path)
+                .with_context(|| format!("no such file: {}", path.display()))?;
             index.insert(root.clone());
             if let Some(dir) = root.parent() {
                 scope = dir.to_path_buf();
@@ -69,16 +75,24 @@ async fn main() -> anyhow::Result<()> {
             root
         }
         None => {
-            let cwd = scope.clone();
-            let docs = scan_markdown(&cwd);
+            if let Some(dir) = &file {
+                scope = PathBuf::from(dir)
+                    .canonicalize()
+                    .with_context(|| format!("no such directory: {dir}"))?;
+            }
+            let docs = scan_markdown(&scope);
             let root = docs
                 .iter()
-                .find(|p| p.parent() == Some(cwd.as_path()) && is_readme(p))
+                .find(|p| p.parent() == Some(scope.as_path()) && is_readme(p))
                 .or_else(|| docs.first())
                 .cloned()
-                .with_context(|| format!("no markdown files under {}", cwd.display()))?;
-            for doc in docs {
-                index.insert(doc);
+                .with_context(|| format!("no markdown files under {}", scope.display()))?;
+            if strict {
+                index.insert(root.clone());
+            } else {
+                for doc in docs {
+                    index.insert(doc);
+                }
             }
             root
         }
