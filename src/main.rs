@@ -13,7 +13,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::get;
 use minijinja::{Environment, context};
 
-use crate::index::{Index, is_markdown, scan_markdown};
+use crate::index::{Index, is_markdown, root_document, scan_markdown};
 use crate::render::LinkMode;
 
 const PAGE_TEMPLATE: &str = include_str!("../templates/page.html");
@@ -81,11 +81,7 @@ async fn main() -> anyhow::Result<()> {
                     .with_context(|| format!("no such directory: {dir}"))?;
             }
             let docs = scan_markdown(&scope);
-            let root = docs
-                .iter()
-                .find(|p| p.parent() == Some(scope.as_path()) && is_readme(p))
-                .or_else(|| docs.first())
-                .cloned()
+            let root = root_document(&docs, &scope)
                 .with_context(|| format!("no markdown files under {}", scope.display()))?;
             if strict {
                 index.insert(root.clone());
@@ -113,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Index everything reachable up front so every page's URL works immediately.
-    render::collect_links(&index, LinkMode::Server);
+    render::collect_links(&index, LinkMode::Server, true);
 
     let state = Arc::new(AppState {
         index,
@@ -134,11 +130,6 @@ async fn main() -> anyhow::Result<()> {
 
     axum::serve(listener, app).await?;
     Ok(())
-}
-
-fn is_readme(path: &std::path::Path) -> bool {
-    path.file_stem()
-        .is_some_and(|s| s.eq_ignore_ascii_case("readme"))
 }
 
 async fn root_redirect(State(state): State<Arc<AppState>>) -> Redirect {
@@ -172,7 +163,7 @@ async fn serve(State(state): State<Arc<AppState>>, Path(hash): Path<String>) -> 
         let path = path.clone();
         tokio::task::spawn_blocking(move || {
             // Re-read on each request so backlinks reflect the files as they are now.
-            let backlinks = render::collect_links(&state.index, LinkMode::Server);
+            let backlinks = render::collect_links(&state.index, LinkMode::Server, false);
             render::render(&source, &path, &state.index, LinkMode::Server, &backlinks)
         })
         .await
