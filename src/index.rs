@@ -87,6 +87,20 @@ pub fn scan_markdown(dir: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// The document a directory opens on: a README/index sitting directly in it,
+/// else the first one found. `docs` is the sorted result of `scan_markdown(dir)`.
+pub fn root_document(docs: &[PathBuf], dir: &Path) -> Option<PathBuf> {
+    docs.iter()
+        .find(|p| p.parent() == Some(dir) && is_root_name(p))
+        .or_else(|| docs.first())
+        .cloned()
+}
+
+fn is_root_name(path: &Path) -> bool {
+    path.file_stem()
+        .is_some_and(|s| s.eq_ignore_ascii_case("readme") || s.eq_ignore_ascii_case("index"))
+}
+
 pub fn is_markdown(path: &Path) -> bool {
     matches!(
         path.extension()

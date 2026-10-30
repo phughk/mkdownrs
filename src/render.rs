@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd, html};
 use serde::Serialize;
 
-use crate::index::{Index, is_markdown};
+use crate::index::{Index, is_markdown, root_document, scan_markdown};
 
 #[derive(Debug, Serialize)]
 pub struct TocEntry {
@@ -71,7 +71,7 @@ pub fn render(
     mode: LinkMode<'_>,
     backlinks: &[Link],
 ) -> Rendered {
-    let (mut events, toc, _) = analyze(source, path, index, mode);
+    let (mut events, toc, _, _) = analyze(source, path, index, mode);
     let has_mermaid = convert_mermaid_blocks(&mut events);
     insert_backlinks(&mut events, &Index::hash(path), backlinks, index, mode);
 
@@ -85,13 +85,15 @@ pub fn render(
 }
 
 /// Outgoing links from a document to markdown documents (itself included).
-pub fn links(source: &str, path: &Path, index: &Index, mode: LinkMode<'_>) -> Vec<Link> {
+#[cfg(test)]
+fn links(source: &str, path: &Path, index: &Index, mode: LinkMode<'_>) -> Vec<Link> {
     analyze(source, path, index, mode).2
 }
 
 /// Read every markdown document reachable from the index (indexing new ones
-/// as they're found) and return all their links.
-pub fn collect_links(index: &Index, mode: LinkMode<'_>) -> Vec<Link> {
+/// as they're found) and return all their links. With `warn`, broken links
+/// are reported on stderr.
+pub fn collect_links(index: &Index, mode: LinkMode<'_>, warn: bool) -> Vec<Link> {
     let mut queue: Vec<_> = index.documents().into_iter().map(|(h, _)| h).collect();
     let mut seen: HashSet<String> = queue.iter().cloned().collect();
     let mut all = Vec::new();
@@ -103,7 +105,13 @@ pub fn collect_links(index: &Index, mode: LinkMode<'_>) -> Vec<Link> {
         let Ok(source) = std::fs::read_to_string(&path) else {
             continue;
         };
-        for link in links(&source, &path, index, mode) {
+        let (_, _, found, broken) = analyze(&source, &path, index, mode);
+        if warn {
+            for dest in broken {
+                eprintln!("warning: {}: broken link `{dest}`", path.display());
+            }
+        }
+        for link in found {
             if seen.insert(link.target.clone()) {
                 queue.push(link.target.clone());
             }
@@ -118,7 +126,7 @@ fn analyze<'a>(
     path: &Path,
     index: &Index,
     mode: LinkMode<'_>,
-) -> (Vec<Event<'a>>, Vec<TocEntry>, Vec<Link>) {
+) -> (Vec<Event<'a>>, Vec<TocEntry>, Vec<Link>, Vec<String>) {
     let options = Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
@@ -132,6 +140,8 @@ fn analyze<'a>(
     let base_dir = path.parent().unwrap_or(Path::new("/"));
 
     let mut links = Vec::new();
+    let mut broken = Vec::new();
+    let mut in_broken = false;
     let mut section: Option<(String, String)> = None;
     let mut headings = toc.iter();
     let mut in_code = false;
@@ -140,7 +150,8 @@ fn analyze<'a>(
     let mut blocks: Vec<(String, Vec<(Link, usize)>)> = Vec::new();
 
     for event in &mut events {
-        match event {
+        let mut replacement = None;
+        match &mut *event {
             Event::Start(Tag::Heading { .. }) => {
                 section = headings.next().map(|t| (t.id.clone(), t.text.clone()));
                 blocks.push(Default::default());
@@ -171,18 +182,31 @@ fn analyze<'a>(
                 }
             }
             Event::Start(Tag::Image { dest_url, .. }) => {
-                if let Some((url, _)) = rewrite_link(dest_url, base_dir, index, mode) {
+                if let Rewritten::Local(url, _) = rewrite_link(dest_url, base_dir, index, mode) {
                     *dest_url = url.into();
                 }
             }
             Event::Start(Tag::Link { dest_url, .. }) => {
                 let target = if let Some(frag) = dest_url.strip_prefix('#') {
                     Some((self_hash.clone(), frag.to_string()))
-                } else if let Some((url, doc)) = rewrite_link(dest_url, base_dir, index, mode) {
-                    *dest_url = url.into();
-                    doc
                 } else {
-                    None
+                    match rewrite_link(dest_url, base_dir, index, mode) {
+                        Rewritten::Local(url, doc) => {
+                            *dest_url = url.into();
+                            doc
+                        }
+                        Rewritten::Broken => {
+                            let mut title = String::new();
+                            escape_html(&mut title, &format!("Broken link: {dest_url}"));
+                            broken.push(dest_url.to_string());
+                            in_broken = true;
+                            replacement = Some(Event::InlineHtml(
+                                format!("<span class=\"broken-link\" title=\"{title}\">⚠ ").into(),
+                            ));
+                            None
+                        }
+                        Rewritten::External => None,
+                    }
                 };
                 if let (Some((target, fragment)), Some((text, pending))) =
                     (target, blocks.last_mut())
@@ -197,11 +221,18 @@ fn analyze<'a>(
                     pending.push((link, text.len()));
                 }
             }
+            Event::End(TagEnd::Link) if in_broken => {
+                in_broken = false;
+                replacement = Some(Event::InlineHtml("</span>".into()));
+            }
             _ => {}
+        }
+        if let Some(r) = replacement {
+            *event = r;
         }
     }
     links.dedup();
-    (events, toc, links)
+    (events, toc, links, broken)
 }
 
 /// The sentence of `text` around byte `offset`, whitespace-collapsed.
@@ -448,17 +479,23 @@ fn slugify(text: &str) -> String {
     slug.trim_matches('-').to_string()
 }
 
-/// Resolve a link destination against `base_dir`. If it points to an existing
-/// local file, index it and return its replacement URL, plus — for markdown
-/// documents — its hash and `#fragment` (without the `#`, possibly empty).
-fn rewrite_link(
-    dest: &str,
-    base_dir: &Path,
-    index: &Index,
-    mode: LinkMode<'_>,
-) -> Option<(String, Option<(String, String)>)> {
+/// What a link destination turned out to be.
+enum Rewritten {
+    /// Not a local path (URL, anchor, or outside the export scope): left alone.
+    External,
+    /// A local path that doesn't exist.
+    Broken,
+    /// An existing local file: its replacement URL, plus — for markdown
+    /// documents — its hash and `#fragment` (without the `#`, possibly empty).
+    Local(String, Option<(String, String)>),
+}
+
+/// Resolve a link destination against `base_dir`. Existing local files are
+/// indexed. A directory is treated as on the command line: every markdown
+/// file under it is indexed and the link opens its root document.
+fn rewrite_link(dest: &str, base_dir: &Path, index: &Index, mode: LinkMode<'_>) -> Rewritten {
     if dest.is_empty() || dest.starts_with('#') || dest.starts_with("//") || has_scheme(dest) {
-        return None;
+        return Rewritten::External;
     }
 
     let (path_part, fragment) = match dest.find(['#', '?']) {
@@ -477,22 +514,40 @@ fn rewrite_link(
     } else {
         base_dir.join(&decoded)
     };
-    let resolved = resolve_file(&candidate)?;
+    let Ok(canonical) = candidate.canonicalize() else {
+        return Rewritten::Broken;
+    };
+    let resolved = if canonical.is_dir() {
+        let docs = scan_markdown(&canonical);
+        let Some(root) = root_document(&docs, &canonical) else {
+            return Rewritten::Broken;
+        };
+        for doc in docs {
+            if !matches!(mode, LinkMode::Export(scope) if !doc.starts_with(scope)) {
+                index.insert(doc);
+            }
+        }
+        root
+    } else {
+        canonical
+    };
     if let LinkMode::Export(scope) = mode
         && !resolved.starts_with(scope)
     {
-        return None;
+        return Rewritten::External;
     }
     let markdown = is_markdown(&resolved);
     if matches!(mode, LinkMode::Export(_)) && !markdown {
-        let bytes = std::fs::read(&resolved).ok()?;
+        let Ok(bytes) = std::fs::read(&resolved) else {
+            return Rewritten::Broken;
+        };
         let mime = mime_guess::from_path(&resolved).first_or_octet_stream();
-        return Some((format!("data:{mime};base64,{}", base64(&bytes)), None));
+        return Rewritten::Local(format!("data:{mime};base64,{}", base64(&bytes)), None);
     }
     let hash = index.insert(resolved);
     let fragment = fragment.trim_start_matches('#');
     let url = mode.doc_url(&hash, (!fragment.is_empty()).then_some(fragment));
-    Some((url, markdown.then(|| (hash, fragment.to_string()))))
+    Rewritten::Local(url, markdown.then(|| (hash, fragment.to_string())))
 }
 
 fn base64(bytes: &[u8]) -> String {
@@ -670,8 +725,31 @@ mod tests {
         assert!(r.html.contains(&format!(r#"href="/{hash}""#)));
         assert!(r.html.contains(r#"href="https://example.com""#));
         assert!(r.html.contains(r##"href="#top""##));
-        assert!(r.html.contains(r#"href="nope.md""#));
+        assert!(!r.html.contains(r#"href="nope.md""#));
+        assert!(r.html.contains(
+            r#"<span class="broken-link" title="Broken link: nope.md">⚠ missing</span>"#
+        ));
         assert_eq!(index.get(&hash), Some(other));
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn directory_links_open_root_and_index_contents() {
+        let dir = std::env::temp_dir().join(format!("mkdownrs-dirtest-{}", std::process::id()));
+        fs::create_dir_all(dir.join("sub/deep")).unwrap();
+        fs::write(dir.join("sub/README.md"), "# Sub").unwrap();
+        fs::write(dir.join("sub/deep/a.md"), "# A").unwrap();
+        let readme = dir.join("sub/README.md").canonicalize().unwrap();
+        let deep = dir.join("sub/deep/a.md").canonicalize().unwrap();
+
+        let index = Index::default();
+        let r = render("[d](sub)", &dir.join("t.md"), &index, LinkMode::Server, &[]);
+        assert!(
+            r.html
+                .contains(&format!(r#"href="/{}""#, Index::hash(&readme)))
+        );
+        assert!(index.get(&Index::hash(&deep)).is_some());
 
         fs::remove_dir_all(&dir).unwrap();
     }

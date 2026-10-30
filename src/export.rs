@@ -23,7 +23,7 @@ pub fn export(
 
     // Indexes everything reachable within scope, so the loop below is stable
     // after one pass in practice.
-    let backlinks = render::collect_links(index, LinkMode::Export(scope));
+    let backlinks = render::collect_links(index, LinkMode::Export(scope), true);
 
     // Rendering a document can index more documents, so loop until stable.
     loop {
