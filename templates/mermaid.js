@@ -95,6 +95,20 @@ function expand(svg) {
   document.addEventListener("keydown", onKey);
 }
 
+// Diagram/Source switch: flip which of the two <pre>s is shown.
+document.addEventListener("click", (e) => {
+  const button = e.target.closest(".mermaid-switch button");
+  if (!button) return;
+  const block = button.closest(".mermaid-block");
+  const view = button.dataset.view;
+  block.dataset.view = view;
+  block.querySelector("pre.mermaid").hidden = view !== "diagram";
+  block.querySelector("pre.mermaid-source").hidden = view !== "source";
+  for (const b of block.querySelectorAll(".mermaid-switch button")) {
+    b.setAttribute("aria-selected", b === button);
+  }
+});
+
 document.addEventListener("click", (e) => {
   const pre = e.target.closest("pre.mermaid");
   const svg = pre && pre.querySelector("svg");
