@@ -4,7 +4,7 @@ rust = { version = "stable", components = "rustfmt,clippy" }
 
 [tasks.build]
 description = "Build a release binary"
-run = "cargo build --release"
+run = "mbx build --release"
 
 [tasks.run]
 description = "Serve the current directory (pass args after --)"
@@ -28,4 +28,5 @@ depends = ["lint", "test"]
 
 [tasks.install]
 description = "Install to ~/.local/bin"
-run = "make install"
+depends = ["build"]
+run = ["mkdir -p ~/.local/bin", "install -m 755 target/release/mkdownrs ~/.local/bin/mkdownrs"]
