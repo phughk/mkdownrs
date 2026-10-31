@@ -351,7 +351,8 @@ fn backlinks_html(links: &[&Link], self_hash: &str, index: &Index, mode: LinkMod
 }
 
 /// Replace ```mermaid fenced code blocks with `<pre class="mermaid">` for
-/// client-side rendering. Returns whether any were found.
+/// client-side rendering, alongside a hidden copy of the source and a
+/// Diagram/Source switch. Returns whether any were found.
 fn convert_mermaid_blocks(events: &mut Vec<Event>) -> bool {
     let mut found = false;
     let mut out = Vec::with_capacity(events.len());
@@ -367,15 +368,28 @@ fn convert_mermaid_blocks(events: &mut Vec<Event>) -> bool {
             continue;
         }
         found = true;
-        let mut html = String::from(r#"<pre class="mermaid">"#);
+        let mut source = String::new();
         for inner in iter.by_ref() {
             match inner {
                 Event::End(TagEnd::CodeBlock) => break,
-                Event::Text(t) => escape_html(&mut html, &t),
+                Event::Text(t) => escape_html(&mut source, &t),
                 _ => {}
             }
         }
-        html.push_str("</pre>\n");
+        // mermaid replaces the diagram's text with an SVG, so keep a copy to show.
+        let html = format!(
+            concat!(
+                "<div class=\"mermaid-block\" data-view=\"diagram\">\n",
+                "<div class=\"mermaid-switch\" role=\"tablist\">",
+                "<button type=\"button\" role=\"tab\" data-view=\"diagram\" aria-selected=\"true\">Diagram</button>",
+                "<button type=\"button\" role=\"tab\" data-view=\"source\" aria-selected=\"false\">Source</button>",
+                "</div>\n",
+                "<pre class=\"mermaid\">{source}</pre>\n",
+                "<pre class=\"mermaid-source\" hidden><code class=\"language-mermaid\">{source}</code></pre>\n",
+                "</div>\n",
+            ),
+            source = source
+        );
         out.push(Event::Html(html.into()));
     }
     *events = out;
@@ -665,6 +679,14 @@ mod tests {
         assert!(
             r.html
                 .contains("<pre class=\"mermaid\">graph TD\n  A--&gt;B &amp; C&lt;br/&gt;\n</pre>"),
+            "{}",
+            r.html
+        );
+        assert!(
+            r.html.contains(concat!(
+                "<pre class=\"mermaid-source\" hidden><code class=\"language-mermaid\">",
+                "graph TD\n  A--&gt;B &amp; C&lt;br/&gt;\n</code></pre>"
+            )),
             "{}",
             r.html
         );

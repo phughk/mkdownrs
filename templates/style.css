@@ -106,6 +106,45 @@ main.content pre code { background: none; padding: 0; font-size: 85%; }
 main.content pre.mermaid { background: none; border: 0; padding: 0; text-align: center; overflow-x: auto; }
 main.content pre.mermaid { cursor: zoom-in; }
 main.content pre.mermaid svg { max-width: 100%; height: auto; }
+main.content .mermaid-block { margin: 16px 0; }
+main.content .mermaid-block pre { margin: 0; }
+main.content .mermaid-block pre[hidden] { display: none; }
+main.content .mermaid-switch {
+  position: relative;
+  display: flex;
+  width: max-content;
+  margin: 0 0 8px auto;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--sidebar-bg);
+}
+/* The thumb slides under whichever half is selected. */
+main.content .mermaid-switch::before {
+  content: "";
+  position: absolute;
+  top: 2px; bottom: 2px; left: 2px;
+  width: calc(50% - 2px);
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .15);
+  transition: transform .2s ease;
+}
+main.content .mermaid-block[data-view="source"] .mermaid-switch::before { transform: translateX(100%); }
+main.content .mermaid-switch button {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 72px;
+  padding: 2px 12px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+main.content .mermaid-switch button[aria-selected="true"] { color: var(--fg); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { main.content .mermaid-switch::before { transition: none; } }
 .mermaid-overlay {
   position: fixed; inset: 0; z-index: 100;
   background: var(--bg);
