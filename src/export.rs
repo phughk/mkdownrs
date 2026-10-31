@@ -16,6 +16,7 @@ pub fn export(
     scope: &Path,
     root_hash: &str,
     templates: &Environment<'_>,
+    show_files: bool,
 ) -> anyhow::Result<String> {
     let mut done = HashSet::new();
     let mut documents = Vec::new();
@@ -71,6 +72,7 @@ pub fn export(
     let html = templates.get_template("export.html")?.render(context! {
         title,
         root_hash,
+        show_files,
         documents,
         has_mermaid,
         // A literal `</script` would end the inline script early.

@@ -29,7 +29,7 @@
     </div>
     {% endfor %}
 
-    {% if documents | length > 1 %}
+    {% if show_files and documents | length > 1 %}
     <h2>Documents</h2>
     <ul>
       {% for doc in documents %}

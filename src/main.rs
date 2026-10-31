@@ -44,6 +44,10 @@ struct Cli {
     /// 0.0.0.0 or :: binds all interfaces
     #[arg(short, long, value_name = "ADDR")]
     bind: Option<String>,
+
+    /// Show only each page's heading index in the sidebar, without the list of files
+    #[arg(long)]
+    hide_files: bool,
 }
 
 /// Splits `--bind` into host and port. A missing host means localhost, a missing port means random.
@@ -100,6 +104,7 @@ fn display_hosts(bound: IpAddr, requested: &str) -> Vec<String> {
 struct AppState {
     index: Index,
     root_hash: String,
+    show_files: bool,
     templates: Environment<'static>,
 }
 
@@ -110,6 +115,7 @@ async fn main() -> anyhow::Result<()> {
         strict,
         export: export_to,
         bind,
+        hide_files,
     } = Cli::parse();
 
     let index = Index::default();
@@ -153,7 +159,7 @@ async fn main() -> anyhow::Result<()> {
     templates.add_template("mermaid.js", MERMAID_JS)?;
 
     if let Some(out) = export_to {
-        let html = export::export(&index, &root, &scope, &root_hash, &templates)?;
+        let html = export::export(&index, &root, &scope, &root_hash, &templates, !hide_files)?;
         std::fs::write(&out, html).with_context(|| format!("writing {out}"))?;
         println!("Exported {} documents to {out}", index.documents().len());
         return Ok(());
@@ -165,6 +171,7 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(AppState {
         index,
         root_hash,
+        show_files: !hide_files,
         templates,
     });
 
@@ -271,6 +278,7 @@ async fn serve(State(state): State<Arc<AppState>>, Path(hash): Path<String>) -> 
             path => path.display().to_string(),
             hash,
             root_hash => &state.root_hash,
+            show_files => state.show_files,
             toc => rendered.toc,
             content => rendered.html,
             has_mermaid => rendered.has_mermaid,

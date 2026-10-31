@@ -24,6 +24,10 @@ The hashing is used as a lookup as well, if it's been indexed, the full path is 
 Renders should be done with minijinja.
 There should be a table of contents on the left side of each page, and rendered content in the primary div.
 
+## Sidebar
+
+The sidebar lists each page's headings plus a list of all indexed files. `--hide-files` hides the file list and keeps only the headings (every file is still indexed and linkable).
+
 ## Binding
 
 `-b` / `--bind` picks where to listen (default: localhost, random port).
