@@ -24,6 +24,16 @@ The hashing is used as a lookup as well, if it's been indexed, the full path is 
 Renders should be done with minijinja.
 There should be a table of contents on the left side of each page, and rendered content in the primary div.
 
+## Binding
+
+`-b` / `--bind` picks where to listen (default: localhost, random port).
+
+```
+mkdownrs --bind :8080          # localhost:8080
+mkdownrs --bind 192.168.1.5    # that address, random port
+mkdownrs --bind 0.0.0.0:8080   # all interfaces; a link is printed for each local address
+```
+
 ## Standalone export
 
 ```

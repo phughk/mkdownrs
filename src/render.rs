@@ -246,8 +246,7 @@ fn sentence_at(text: &str, offset: usize) -> String {
     };
     let start = text[..offset]
         .char_indices()
-        .filter(|&(i, c)| is_end(i, c))
-        .last()
+        .rfind(|&(i, c)| is_end(i, c))
         .map_or(0, |(i, c)| i + c.len_utf8());
     let end = text[offset..]
         .char_indices()

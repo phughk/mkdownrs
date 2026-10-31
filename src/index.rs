@@ -75,10 +75,10 @@ pub fn scan_markdown(dir: &Path) -> Vec<PathBuf> {
                 if !name.starts_with('.') && !matches!(&*name, "node_modules" | "target") {
                     stack.push(path);
                 }
-            } else if is_markdown(&path) {
-                if let Ok(canon) = path.canonicalize() {
-                    found.push(canon);
-                }
+            } else if is_markdown(&path)
+                && let Ok(canon) = path.canonicalize()
+            {
+                found.push(canon);
             }
         }
     }

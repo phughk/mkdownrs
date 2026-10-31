@@ -1,0 +1,31 @@
+[tools]
+mr-boxington = "latest"
+rust = { version = "stable", components = "rustfmt,clippy" }
+
+[tasks.build]
+description = "Build a release binary"
+run = "cargo build --release"
+
+[tasks.run]
+description = "Serve the current directory (pass args after --)"
+run = "cargo run --"
+
+[tasks.test]
+description = "Run the tests"
+run = "cargo test"
+
+[tasks.fmt]
+description = "Format the code"
+run = "cargo fmt"
+
+[tasks.lint]
+description = "Check formatting and clippy"
+run = ["cargo fmt --check", "cargo clippy --all-targets -- -D warnings"]
+
+[tasks.check]
+description = "Everything CI runs"
+depends = ["lint", "test"]
+
+[tasks.install]
+description = "Install to ~/.local/bin"
+run = "make install"
