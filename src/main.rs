@@ -2,15 +2,17 @@ mod export;
 mod index;
 mod render;
 
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use axum::Router;
 use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::get;
+use clap::Parser;
 use minijinja::{Environment, context};
 
 use crate::index::{Index, is_markdown, root_document, scan_markdown};
@@ -20,7 +22,80 @@ const PAGE_TEMPLATE: &str = include_str!("../templates/page.html");
 const EXPORT_TEMPLATE: &str = include_str!("../templates/export.html");
 const STYLE: &str = include_str!("../templates/style.css");
 const MERMAID_JS: &str = include_str!("../templates/mermaid.js");
-const USAGE: &str = "usage: mkdownrs [file.md|dir] [-s|--strict] [--export out.html]";
+
+/// Serve or export markdown files as linked, rendered pages.
+///
+/// Without a file, or given a directory, indexes all markdown files under it.
+#[derive(Parser)]
+#[command(version)]
+struct Cli {
+    /// Markdown file or directory to serve
+    file: Option<String>,
+
+    /// For a directory, only index the most sensible markdown file and what it links to
+    #[arg(short, long)]
+    strict: bool,
+
+    /// Write everything as one standalone HTML file instead of serving
+    #[arg(long, value_name = "OUT.HTML")]
+    export: Option<String>,
+
+    /// Address to serve on: HOST, :PORT or HOST:PORT (default localhost, random port).
+    /// 0.0.0.0 or :: binds all interfaces
+    #[arg(short, long, value_name = "ADDR")]
+    bind: Option<String>,
+}
+
+/// Splits `--bind` into host and port. A missing host means localhost, a missing port means random.
+fn parse_bind(spec: &str) -> anyhow::Result<(String, u16)> {
+    let spec = spec.trim();
+    if let Ok(addr) = spec.parse::<SocketAddr>() {
+        return Ok((addr.ip().to_string(), addr.port()));
+    }
+    // A bare IPv6 address (with or without brackets) has no port.
+    let bare = spec.trim_start_matches('[').trim_end_matches(']');
+    if bare.parse::<Ipv6Addr>().is_ok() {
+        return Ok((bare.to_string(), 0));
+    }
+    let (host, port) = match spec.rsplit_once(':') {
+        Some((host, port)) => (
+            host,
+            port.parse::<u16>()
+                .with_context(|| format!("invalid port in --bind {spec:?}"))?,
+        ),
+        None => (spec, 0),
+    };
+    let host = if host.is_empty() { "localhost" } else { host };
+    Ok((host.to_string(), port))
+}
+
+/// Hosts to print links for: every local address when bound to an unspecified one.
+fn display_hosts(bound: IpAddr, requested: &str) -> Vec<String> {
+    if requested.parse::<IpAddr>().is_err() {
+        return vec![requested.to_string()];
+    }
+    if !bound.is_unspecified() {
+        return vec![match bound {
+            IpAddr::V6(ip) => format!("[{ip}]"),
+            IpAddr::V4(ip) => ip.to_string(),
+        }];
+    }
+    let mut hosts: Vec<String> = if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|i| i.ip())
+        .filter(|ip| bound.is_ipv6() || ip.is_ipv4())
+        .map(|ip| match ip {
+            IpAddr::V6(ip) => format!("[{ip}]"),
+            IpAddr::V4(ip) => ip.to_string(),
+        })
+        .collect();
+    hosts.sort_by_key(|h| (h.starts_with('['), h != "127.0.0.1"));
+    if hosts.is_empty() {
+        hosts.push("localhost".into());
+    }
+    hosts
+}
 
 struct AppState {
     index: Index,
@@ -30,36 +105,12 @@ struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut file = None;
-    let mut export_to = None;
-    let mut strict = false;
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "-h" | "--help" => {
-                println!("{USAGE}");
-                println!(
-                    "  without a file, or given a directory, indexes all markdown files under it"
-                );
-                println!(
-                    "  -s, --strict       for a directory, only index the most sensible markdown file and what it links to"
-                );
-                println!(
-                    "  --export out.html  write everything as one standalone HTML file instead of serving"
-                );
-                return Ok(());
-            }
-            "--export" => {
-                export_to = Some(
-                    args.next()
-                        .with_context(|| format!("--export needs a path\n{USAGE}"))?,
-                );
-            }
-            "-s" | "--strict" => strict = true,
-            _ if file.is_none() && !arg.starts_with('-') => file = Some(arg),
-            _ => bail!("{USAGE}"),
-        }
-    }
+    let Cli {
+        file,
+        strict,
+        export: export_to,
+        bind,
+    } = Cli::parse();
 
     let index = Index::default();
     let mut scope = std::env::current_dir()?.canonicalize()?;
@@ -122,11 +173,22 @@ async fn main() -> anyhow::Result<()> {
         .route("/{hash}", get(serve))
         .with_state(state.clone());
 
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
-    let port = listener.local_addr()?.port();
+    let (host, port) = parse_bind(bind.as_deref().unwrap_or(""))?;
+    // Plain "localhost" can resolve to ::1 first; keep the loopback IPv4 default.
+    let bind_host = if host == "localhost" {
+        "127.0.0.1"
+    } else {
+        host.as_str()
+    };
+    let listener = tokio::net::TcpListener::bind((bind_host, port))
+        .await
+        .with_context(|| format!("binding {host}:{port}"))?;
+    let local = listener.local_addr()?;
     println!("Serving {}", root.display());
-    println!("  http://localhost:{port}/{}", state.root_hash);
-    println!("  http://localhost:{port}/ (redirects to the above)");
+    for h in display_hosts(local.ip(), &host) {
+        println!("  http://{h}:{}/{}", local.port(), state.root_hash);
+    }
+    println!("  (the root path / redirects to the above)");
 
     axum::serve(listener, app).await?;
     Ok(())
