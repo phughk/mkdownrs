@@ -1,6 +1,6 @@
 [tools]
 mr-boxington = "latest"
-rust = { version = "stable", components = "rustfmt,clippy" }
+rust = { version = "stable", mr_boxington = true, components = "rustfmt,clippy" }
 
 [tasks.build]
 description = "Build a release binary"
