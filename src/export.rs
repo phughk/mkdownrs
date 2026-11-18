@@ -3,7 +3,7 @@ use std::path::Path;
 
 use minijinja::{Environment, context};
 
-use crate::index::Index;
+use crate::index::{Index, file_tree, relative_path};
 use crate::render::{self, LinkMode};
 
 const MERMAID_LIB: &str = include_str!("../assets/mermaid.min.js");
@@ -56,13 +56,22 @@ pub fn export(
         .or_else(|| root.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_default();
 
+    let tree = file_tree(
+        &documents
+            .iter()
+            .map(|(h, p, _)| (h.clone(), p.clone()))
+            .collect::<Vec<_>>(),
+        scope,
+    );
+    let document_count = documents.len();
+
     let documents: Vec<_> = documents
         .into_iter()
         .map(|(hash, path, rendered)| {
             context! {
                 hash,
                 name => path.file_name().map(|n| n.to_string_lossy().into_owned()),
-                path => path.display().to_string(),
+                path => relative_path(&path, scope),
                 toc => rendered.toc,
                 content => rendered.html,
             }
@@ -73,6 +82,8 @@ pub fn export(
         title,
         root_hash,
         show_files,
+        tree,
+        document_count,
         documents,
         has_mermaid,
         // A literal `</script` would end the inline script early.

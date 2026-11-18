@@ -26,7 +26,7 @@ There should be a table of contents on the left side of each page, and rendered 
 
 ## Sidebar
 
-The sidebar lists each page's headings plus a list of all indexed files. `--hide-files` hides the file list and keeps only the headings (every file is still indexed and linkable).
+The sidebar lists each page's headings plus a collapsible tree of all indexed files, laid out by path relative to the served directory. `--hide-files` hides the file list and keeps only the headings (every file is still indexed and linkable).
 
 ## Binding
 

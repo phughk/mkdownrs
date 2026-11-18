@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 /// Number of hex characters of the SHA-256 digest used as the URL key.
@@ -52,6 +53,76 @@ impl Index {
             .collect();
         docs.sort_by(|a, b| a.1.cmp(&b.1));
         docs
+    }
+}
+
+/// A node in the sidebar file tree: a directory (`hash` is `None`) or a document.
+#[derive(Serialize, Default, Debug, PartialEq)]
+pub struct TreeNode {
+    pub name: String,
+    pub hash: Option<String>,
+    /// Path relative to the tree root, for tooltips.
+    pub path: String,
+    pub children: Vec<TreeNode>,
+}
+
+/// `path` relative to `root` with `/` separators; paths outside `root` are
+/// shown from the filesystem root.
+pub fn relative_path(path: &Path, root: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(n) => Some(n.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Arrange `(hash, path)` documents into a directory tree relative to `root`.
+/// Paths outside `root` are shown from the filesystem root. Directories come
+/// before files, each sorted by name.
+pub fn file_tree(docs: &[(String, PathBuf)], root: &Path) -> Vec<TreeNode> {
+    let mut top = Vec::new();
+    for (hash, path) in docs {
+        let rel = path.strip_prefix(root).unwrap_or(path);
+        let parts: Vec<String> = rel
+            .components()
+            .filter_map(|c| match c {
+                std::path::Component::Normal(n) => Some(n.to_string_lossy().into_owned()),
+                _ => None,
+            })
+            .collect();
+        let rel_display = parts.join("/");
+        let mut level = &mut top;
+        for (i, part) in parts.iter().enumerate() {
+            let last = i + 1 == parts.len();
+            let pos = level
+                .iter()
+                .position(|n: &TreeNode| n.name == *part && n.hash.is_some() == last);
+            let pos = pos.unwrap_or_else(|| {
+                level.push(TreeNode {
+                    name: part.clone(),
+                    hash: last.then(|| hash.clone()),
+                    path: if last { rel_display.clone() } else { parts[..=i].join("/") },
+                    children: Vec::new(),
+                });
+                level.len() - 1
+            });
+            level = &mut level[pos].children;
+        }
+    }
+    sort_tree(&mut top);
+    top
+}
+
+fn sort_tree(nodes: &mut [TreeNode]) {
+    nodes.sort_by(|a, b| {
+        (a.hash.is_some(), &a.name).cmp(&(b.hash.is_some(), &b.name))
+    });
+    for n in nodes {
+        sort_tree(&mut n.children);
     }
 }
 
@@ -121,6 +192,22 @@ mod tests {
         assert_eq!(a, Index::hash(Path::new("/tmp/README.md")));
         assert_eq!(a.len(), HASH_LEN);
         assert_ne!(a, Index::hash(Path::new("/tmp/OTHER.md")));
+    }
+
+    #[test]
+    fn tree_groups_shared_directories() {
+        let docs = vec![
+            ("a".to_string(), PathBuf::from("/r/README.md")),
+            ("b".to_string(), PathBuf::from("/r/docs/x.md")),
+            ("c".to_string(), PathBuf::from("/r/docs/y.md")),
+        ];
+        let tree = file_tree(&docs, Path::new("/r"));
+        assert_eq!(tree.len(), 2);
+        assert_eq!(tree[0].name, "docs");
+        assert_eq!(tree[0].hash, None);
+        assert_eq!(tree[0].children.len(), 2);
+        assert_eq!(tree[0].children[1].path, "docs/y.md");
+        assert_eq!(tree[1].name, "README.md");
     }
 
     #[test]

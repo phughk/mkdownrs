@@ -1,0 +1,34 @@
+<ul class="tree">
+  {% for node in tree recursive %}
+  {% if node.hash %}
+  <li><a href="{{ href_prefix }}{{ node.hash }}"{% if nav_attr %} data-nav="{{ node.hash }}"{% endif %} title="{{ node.path }}"{% if node.hash == hash %} class="current"{% endif %}>{{ node.name }}{% if node.hash == root_hash %} ★{% endif %}</a></li>
+  {% else %}
+  <li><details data-path="{{ node.path }}"><summary title="{{ node.path }}">{{ node.name }}/</summary>
+    <ul>{{ loop(node.children) }}</ul>
+  </details></li>
+  {% endif %}
+  {% endfor %}
+</ul>
+<script>
+(() => {
+  const KEY = "mkdownrs:open-dirs";
+  const dirs = [...document.querySelectorAll("ul.tree details[data-path]")];
+  const load = () => {
+    try { return new Set(JSON.parse(localStorage.getItem(KEY)) || []); } catch { return new Set(); }
+  };
+  const save = () => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(dirs.filter(d => d.open).map(d => d.dataset.path)));
+    } catch {}
+  };
+  const saved = load();
+  for (const d of dirs) d.open = saved.has(d.dataset.path);
+  for (const d of dirs) {
+    d.addEventListener("toggle", () => {
+      // Collapsing a directory collapses everything inside it.
+      if (!d.open) for (const c of d.querySelectorAll("details[open]")) c.open = false;
+      save();
+    });
+  }
+})();
+</script>

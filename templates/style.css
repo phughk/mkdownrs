@@ -75,7 +75,18 @@ nav.toc li a {
 }
 nav.toc li a:hover { background: var(--active); text-decoration: none; }
 nav.toc li a.current { background: var(--active); font-weight: 600; }
-nav.toc .file { color: var(--muted); font-size: 12px; word-break: break-all; margin-bottom: 20px; }
+nav.toc ul.tree ul { padding-left: 12px; margin-left: 4px; border-left: 1px solid var(--border); }
+nav.toc .tree summary { cursor: pointer; padding: 3px 8px; color: var(--muted); border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+nav.toc .tree summary:hover { background: var(--active); }
+nav.toc .file { display: flex; align-items: flex-start; gap: 6px; color: var(--muted); font-size: 12px; margin-bottom: 20px; }
+nav.toc .file[hidden] { display: none; }
+nav.toc .file-path { flex: 1; min-width: 0; word-break: break-all; }
+nav.toc button.copy { flex: none; display: inline-flex; padding: 2px; border: 0; border-radius: 4px; background: none; color: inherit; cursor: pointer; }
+nav.toc button.copy:hover { background: var(--active); color: var(--fg); }
+nav.toc button.copy .icon-check { display: none; }
+nav.toc button.copy.copied { color: var(--link); }
+nav.toc button.copy.copied .icon-copy { display: none; }
+nav.toc button.copy.copied .icon-check { display: inline; }
 
 main.content {
   flex: 1;

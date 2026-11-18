@@ -15,11 +15,13 @@ use axum::routing::get;
 use clap::Parser;
 use minijinja::{Environment, context};
 
-use crate::index::{Index, is_markdown, root_document, scan_markdown};
+use crate::index::{Index, file_tree, relative_path, is_markdown, root_document, scan_markdown};
 use crate::render::LinkMode;
 
 const PAGE_TEMPLATE: &str = include_str!("../templates/page.html");
 const EXPORT_TEMPLATE: &str = include_str!("../templates/export.html");
+const TREE_TEMPLATE: &str = include_str!("../templates/tree.html");
+const COPY_JS: &str = include_str!("../templates/copy.js");
 const STYLE: &str = include_str!("../templates/style.css");
 const MERMAID_JS: &str = include_str!("../templates/mermaid.js");
 
@@ -105,6 +107,7 @@ struct AppState {
     index: Index,
     root_hash: String,
     show_files: bool,
+    scope: PathBuf,
     templates: Environment<'static>,
 }
 
@@ -155,6 +158,8 @@ async fn main() -> anyhow::Result<()> {
     let mut templates = Environment::new();
     templates.add_template("page.html", PAGE_TEMPLATE)?;
     templates.add_template("export.html", EXPORT_TEMPLATE)?;
+    templates.add_template("tree.html", TREE_TEMPLATE)?;
+    templates.add_template("copy.js", COPY_JS)?;
     templates.add_template("style.css", STYLE)?;
     templates.add_template("mermaid.js", MERMAID_JS)?;
 
@@ -172,6 +177,7 @@ async fn main() -> anyhow::Result<()> {
         index,
         root_hash,
         show_files: !hide_files,
+        scope,
         templates,
     });
 
@@ -258,31 +264,22 @@ async fn serve(State(state): State<Arc<AppState>>, Path(hash): Path<String>) -> 
         .find(|t| t.level == 1)
         .map(|t| t.text.clone())
         .unwrap_or_else(|| file_name.clone());
-    let documents: Vec<_> = state
-        .index
-        .documents()
-        .into_iter()
-        .map(|(h, p)| {
-            context! {
-                hash => h,
-                name => p.file_name().map(|n| n.to_string_lossy().into_owned()),
-                path => p.display().to_string(),
-            }
-        })
-        .collect();
+    let tree = file_tree(&state.index.documents(), &state.scope);
+    let document_count = state.index.documents().len();
 
     let page = state.templates.get_template("page.html").and_then(|t| {
         t.render(context! {
             title,
             file_name,
-            path => path.display().to_string(),
+            path => relative_path(&path, &state.scope),
             hash,
             root_hash => &state.root_hash,
             show_files => state.show_files,
             toc => rendered.toc,
             content => rendered.html,
             has_mermaid => rendered.has_mermaid,
-            documents,
+            tree,
+            document_count,
         })
     });
 
