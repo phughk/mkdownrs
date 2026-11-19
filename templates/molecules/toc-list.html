@@ -1,0 +1,7 @@
+<ul class="nav-list">
+  {% for entry in toc_entries %}
+  <li><a href="{{ toc_prefix }}{{ entry.id }}" style="--level: {{ entry.level }}">{{ entry.text }}</a></li>
+  {% else %}
+  <li><a href="{{ toc_prefix }}">{{ toc_fallback }}</a></li>
+  {% endfor %}
+</ul>

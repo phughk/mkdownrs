@@ -1,0 +1,67 @@
+/* Atoms: base elements and single-purpose controls. No layout knowledge. */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+/* Icon button (copy, menu). */
+.btn-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.btn-icon:hover { background: var(--active); color: var(--fg); }
+.btn-icon.copy .icon-check { display: none; }
+.btn-icon.copy.copied { color: var(--link); }
+.btn-icon.copy.copied .icon-copy { display: none; }
+.btn-icon.copy.copied .icon-check { display: inline; }
+.btn-icon.menu { width: 40px; height: 40px; }
+
+/* Dimmed backdrop behind the mobile drawer. */
+.scrim {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgb(0 0 0 / .45);
+}
+
+/* Prose atoms. */
+main.content img { max-width: 100%; height: auto; }
+main.content code {
+  font: 85% ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--code-bg);
+  padding: .2em .4em;
+  border-radius: 6px;
+}
+main.content pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  overflow-x: auto;
+  line-height: 1.45;
+}
+main.content pre code { background: none; padding: 0; font-size: 85%; }
+main.content hr { border: 0; border-top: 1px solid var(--border); margin: 24px 0; }
+main.content table { border-collapse: collapse; display: block; overflow-x: auto; }
+main.content th, main.content td { border: 1px solid var(--border); padding: 6px 13px; }
+main.content blockquote { margin: 0; padding: 0 1em; color: var(--muted); border-left: .25em solid var(--border); }
+main.content h1, main.content h2 { border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+main.content h1, main.content h2, main.content h3,
+main.content h4, main.content h5, main.content h6 { scroll-margin-top: 16px; line-height: 1.25; margin: 1.5em 0 .75em; overflow-wrap: anywhere; }
+main.content .broken-link { color: #c0392b; text-decoration: line-through; cursor: not-allowed; }

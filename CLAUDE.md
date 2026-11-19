@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+Commit as you work.
+
 ## Workspace hygiene
 
 - **Clean up agent worktrees.** When fanning work out to agents with worktree isolation, remove each worktree once its branch is merged and verified: `git worktree remove --force .claude/worktrees/<name>`, `git branch -D <branch>`, then `git worktree prune`. Never remove a worktree that is locked (a live agent) or has unmerged commits or uncommitted changes.

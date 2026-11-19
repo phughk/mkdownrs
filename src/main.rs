@@ -18,12 +18,26 @@ use minijinja::{Environment, context};
 use crate::index::{Index, file_tree, relative_path, is_markdown, root_document, scan_markdown};
 use crate::render::LinkMode;
 
-const PAGE_TEMPLATE: &str = include_str!("../templates/page.html");
-const EXPORT_TEMPLATE: &str = include_str!("../templates/export.html");
-const TREE_TEMPLATE: &str = include_str!("../templates/tree.html");
-const COPY_JS: &str = include_str!("../templates/copy.js");
-const STYLE: &str = include_str!("../templates/style.css");
-const MERMAID_JS: &str = include_str!("../templates/mermaid.js");
+/// Every template, keyed by the name used in `{% include %}`. Laid out by atomic design level.
+const TEMPLATES: &[(&str, &str)] = &[
+    ("page.html", include_str!("../templates/page.html")),
+    ("export.html", include_str!("../templates/export.html")),
+    ("atoms/copy-button.html", include_str!("../templates/atoms/copy-button.html")),
+    ("atoms/menu-button.html", include_str!("../templates/atoms/menu-button.html")),
+    ("molecules/file-path.html", include_str!("../templates/molecules/file-path.html")),
+    ("molecules/toc-list.html", include_str!("../templates/molecules/toc-list.html")),
+    ("molecules/tree.html", include_str!("../templates/molecules/tree.html")),
+    ("organisms/topbar.html", include_str!("../templates/organisms/topbar.html")),
+    ("style.css", include_str!("../templates/style.css")),
+    ("css/tokens.css", include_str!("../templates/css/tokens.css")),
+    ("css/atoms.css", include_str!("../templates/css/atoms.css")),
+    ("css/molecules.css", include_str!("../templates/css/molecules.css")),
+    ("css/organisms.css", include_str!("../templates/css/organisms.css")),
+    ("css/templates.css", include_str!("../templates/css/templates.css")),
+    ("copy.js", include_str!("../templates/copy.js")),
+    ("nav.js", include_str!("../templates/nav.js")),
+    ("mermaid.js", include_str!("../templates/mermaid.js")),
+];
 
 /// Serve or export markdown files as linked, rendered pages.
 ///
@@ -156,12 +170,9 @@ async fn main() -> anyhow::Result<()> {
     let root_hash = Index::hash(&root);
 
     let mut templates = Environment::new();
-    templates.add_template("page.html", PAGE_TEMPLATE)?;
-    templates.add_template("export.html", EXPORT_TEMPLATE)?;
-    templates.add_template("tree.html", TREE_TEMPLATE)?;
-    templates.add_template("copy.js", COPY_JS)?;
-    templates.add_template("style.css", STYLE)?;
-    templates.add_template("mermaid.js", MERMAID_JS)?;
+    for (name, source) in TEMPLATES {
+        templates.add_template(name, source)?;
+    }
 
     if let Some(out) = export_to {
         let html = export::export(&index, &root, &scope, &root_hash, &templates, !hide_files)?;

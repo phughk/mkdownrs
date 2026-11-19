@@ -1,0 +1,58 @@
+/* Templates: page-level layout and breakpoints. */
+body { display: flex; min-height: 100vh; }
+
+@media (max-width: 1024px) {
+  main.content { padding: 32px 32px 96px; }
+}
+
+@media (max-width: 760px) {
+  body { display: block; }
+  .topbar { display: flex; position: sticky; top: 0; z-index: 20; }
+  main.content {
+    max-width: none;
+    padding: 20px max(16px, env(safe-area-inset-right)) 64px max(16px, env(safe-area-inset-left));
+    font-size: 16px;
+  }
+  main.content h1 { font-size: 1.65em; }
+  main.content h2 { font-size: 1.35em; }
+  main.content h1, main.content h2, main.content h3,
+  main.content h4, main.content h5, main.content h6 { scroll-margin-top: 68px; }
+  main.content pre { padding: 12px; border-radius: 0; margin-inline: -16px; border-inline: 0; }
+  main.content th, main.content td { padding: 6px 10px; }
+  main.content a.backlink .excerpt { max-width: 24ch; }
+  .mermaid-overlay .hint { top: 8px; right: 8px; }
+
+  /* Without JS the sidebar simply stacks above the article. */
+  nav.toc { position: static; height: auto; flex: none; border-right: 0; border-bottom: 1px solid var(--border); }
+
+  /* With JS it becomes an off-canvas drawer opened from the top bar. */
+  .js .topbar { display: flex; }
+  .js nav.toc {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 40;
+    width: min(86vw, 330px);
+    height: 100dvh;
+    padding-top: max(24px, env(safe-area-inset-top));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    border-right: 1px solid var(--border);
+    border-bottom: 0;
+    box-shadow: 0 0 24px rgb(0 0 0 / .25);
+    transform: translateX(-105%);
+    visibility: hidden;
+    transition: transform .22s ease, visibility 0s linear .22s;
+  }
+  .js.nav-open nav.toc { transform: none; visibility: visible; transition: transform .22s ease; }
+  .js.nav-open .scrim { display: block; }
+  .js.nav-open { overflow: hidden; }
+
+  /* Comfortable touch targets in the drawer. */
+  nav.toc { font-size: 15px; }
+  .nav-list li a, .nav-list.tree summary { padding-block: 9px; }
+  .btn-icon { padding: 8px; }
+  .file-path-row .btn-icon { padding: 6px; }
+  .topbar .btn-icon { padding: 2px; }
+}
+@media (max-width: 760px) and (prefers-reduced-motion: reduce) {
+  .js nav.toc, .js.nav-open nav.toc { transition: none; }
+}

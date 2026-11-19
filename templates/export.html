@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title }}</title>
+  <script>document.documentElement.classList.add("js")</script>
   <style>
 {% include "style.css" %}
     [hidden] { display: none !important; }
@@ -11,28 +12,25 @@
   </style>
 </head>
 <body>
-  <nav class="toc">
+  {% include "organisms/topbar.html" %}
+  <nav class="toc" id="sidebar">
     {% for doc in documents %}
-    <div class="file" data-doc="{{ doc.hash }}" title="{{ doc.path }}" hidden><span class="file-path">{{ doc.path }}</span><button type="button" class="copy" data-copy="{{ doc.path }}" title="Copy relative path" aria-label="Copy relative path"><svg class="icon-copy" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5a1.5 1.5 0 0 0-1.5-1.5H3.5A1.5 1.5 0 0 0 2 3v5.5A1.5 1.5 0 0 0 3.5 10H4"/></svg><svg class="icon-check" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg></button></div>
+    {% set fp_path = doc.path %}{% set fp_hash = doc.hash %}
+    {% include "molecules/file-path.html" %}
     {% endfor %}
 
     {% for doc in documents %}
     <div data-doc="{{ doc.hash }}" hidden>
-      <h2>Contents</h2>
-      <ul>
-        {% for entry in doc.toc %}
-        <li><a href="#/{{ doc.hash }}/{{ entry.id }}" style="--level: {{ entry.level }}">{{ entry.text }}</a></li>
-        {% else %}
-        <li><a href="#/{{ doc.hash }}">{{ doc.name }}</a></li>
-        {% endfor %}
-      </ul>
+      <h2 class="nav-heading">Contents</h2>
+      {% set toc_entries = doc.toc %}{% set toc_prefix = "#/" ~ doc.hash ~ "/" %}{% set toc_fallback = doc.name %}
+      {% include "molecules/toc-list.html" %}
     </div>
     {% endfor %}
 
     {% if show_files and document_count > 1 %}
-    <h2>Documents</h2>
+    <h2 class="nav-heading">Documents</h2>
     {% set href_prefix = "#/" %}{% set nav_attr = true %}
-    {% include "tree.html" %}
+    {% include "molecules/tree.html" %}
     {% endif %}
   </nav>
 
@@ -45,6 +43,9 @@
   </main>
   <script>
 {% include "copy.js" %}
+  </script>
+  <script>
+{% include "nav.js" %}
   </script>
   {% if has_mermaid %}
   <script>{{ mermaid_lib | safe }}</script>

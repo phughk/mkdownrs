@@ -1,0 +1,109 @@
+/* Molecules: small groups of atoms with one purpose. */
+
+/* Sidebar section heading. */
+.nav-heading {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+/* File path + copy button. */
+.file-path-row { display: flex; align-items: flex-start; gap: 6px; color: var(--muted); font-size: 12px; margin-bottom: 20px; }
+.file-path-row[hidden] { display: none; }
+.file-path-row .file-path { flex: 1; min-width: 0; word-break: break-all; }
+
+/* Sidebar link list (headings and document tree). */
+.nav-list { list-style: none; margin: 0; padding: 0; }
+.nav-heading + .nav-list { margin-bottom: 24px; }
+.nav-list li a {
+  display: block;
+  padding: 3px 8px;
+  padding-left: calc(8px + (var(--level, 1) - 1) * 14px);
+  border-radius: 6px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-list li a:hover { background: var(--active); text-decoration: none; }
+.nav-list li a.current { background: var(--active); font-weight: 600; }
+.nav-list.tree ul { padding-left: 12px; margin-left: 4px; border-left: 1px solid var(--border); }
+.nav-list.tree summary { cursor: pointer; padding: 3px 8px; color: var(--muted); border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-list.tree summary:hover { background: var(--active); }
+
+/* Callout alerts. */
+main.content blockquote[class^="markdown-alert-"] { color: var(--fg); border-left-color: var(--alert); margin-bottom: 16px; padding: .5em 1em; }
+main.content blockquote[class^="markdown-alert-"] > :first-child { margin-top: 0; }
+main.content blockquote[class^="markdown-alert-"] > :last-child { margin-bottom: 0; }
+main.content blockquote[class^="markdown-alert-"]::before {
+  content: var(--alert-title);
+  display: block;
+  color: var(--alert);
+  font-weight: 600;
+  margin-bottom: .25em;
+}
+.markdown-alert-note { --alert: var(--note); --alert-title: "ⓘ Note"; }
+.markdown-alert-tip { --alert: var(--tip); --alert-title: "✦ Tip"; }
+.markdown-alert-important { --alert: var(--important); --alert-title: "❢ Important"; }
+.markdown-alert-warning { --alert: var(--warning); --alert-title: "⚠ Warning"; }
+.markdown-alert-caution { --alert: var(--caution); --alert-title: "⊘ Caution"; }
+
+/* Backlink pills. */
+main.content .backlinks { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 16px; }
+main.content a.backlink {
+  display: inline-flex;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--sidebar-bg);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+  overflow: hidden;
+}
+main.content a.backlink:hover { background: var(--active); border-color: var(--link); text-decoration: none; }
+main.content a.backlink span { padding: 0 10px; white-space: nowrap; }
+main.content a.backlink span + span { border-left: 1px solid var(--border); }
+main.content a.backlink .file { color: var(--link); font-weight: 600; }
+main.content a.backlink .section { color: var(--fg); }
+main.content a.backlink .excerpt { min-width: 0; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; font-style: italic; }
+
+/* Mermaid diagram/source switch. */
+main.content .mermaid-switch {
+  position: relative;
+  display: flex;
+  width: max-content;
+  margin: 0 0 8px auto;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--sidebar-bg);
+}
+/* The thumb slides under whichever half is selected. */
+main.content .mermaid-switch::before {
+  content: "";
+  position: absolute;
+  top: 2px; bottom: 2px; left: 2px;
+  width: calc(50% - 2px);
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .15);
+  transition: transform .2s ease;
+}
+main.content .mermaid-block[data-view="source"] .mermaid-switch::before { transform: translateX(100%); }
+main.content .mermaid-switch button {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 72px;
+  padding: 2px 12px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+main.content .mermaid-switch button[aria-selected="true"] { color: var(--fg); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { main.content .mermaid-switch::before { transition: none; } }

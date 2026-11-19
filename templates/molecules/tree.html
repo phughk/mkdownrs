@@ -1,4 +1,4 @@
-<ul class="tree">
+<ul class="nav-list tree">
   {% for node in tree recursive %}
   {% if node.hash %}
   <li><a href="{{ href_prefix }}{{ node.hash }}"{% if nav_attr %} data-nav="{{ node.hash }}"{% endif %} title="{{ node.path }}"{% if node.hash == hash %} class="current"{% endif %}>{{ node.name }}{% if node.hash == root_hash %} ★{% endif %}</a></li>

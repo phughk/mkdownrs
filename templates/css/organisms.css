@@ -1,0 +1,61 @@
+/* Organisms: distinct interface sections built from molecules and atoms. */
+
+/* Sidebar. */
+nav.toc {
+  flex: 0 0 280px;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px 16px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  font-size: 14px;
+}
+
+/* Mobile top bar (hidden on desktop). */
+.topbar {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  height: 52px;
+  padding: 0 max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--border);
+}
+.topbar .topbar-title { flex: 1; min-width: 0; font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Article. */
+main.content {
+  flex: 1;
+  min-width: 0;
+  max-width: 900px;
+  padding: 32px 48px 96px;
+}
+main.content > :first-child { margin-top: 0; }
+main.content pre.mermaid { background: none; border: 0; padding: 0; text-align: center; overflow-x: auto; cursor: zoom-in; }
+main.content pre.mermaid svg { max-width: 100%; height: auto; }
+main.content .mermaid-block { margin: 16px 0; }
+main.content .mermaid-block pre { margin: 0; }
+main.content .mermaid-block pre[hidden] { display: none; }
+
+/* Fullscreen diagram viewer. */
+.mermaid-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: var(--bg);
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.mermaid-overlay.dragging { cursor: grabbing; }
+.mermaid-overlay .stage { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+.mermaid-overlay .stage svg { max-width: none !important; display: block; }
+.mermaid-overlay .hint {
+  position: fixed; top: 12px; right: 16px;
+  color: var(--muted); font-size: 13px;
+  background: var(--sidebar-bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 10px; pointer-events: none;
+}
